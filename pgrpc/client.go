@@ -10,8 +10,16 @@ import (
 // UnaryInvoker is the substitutable half of the connection seam. It traffics
 // only in []byte and []conn.HeaderField, both of which a fake can produce, so a
 // unary-only test double is straightforward.
+//
+// InvokeInto is what this package actually calls; Invoke is kept because it is
+// what poseidon's own grpc.Invoker declares, and dropping it would stop a
+// user-written decorator that forwards only Invoke from satisfying this
+// interface. This is the one place pgrpc.Invoker is a strict SUPERSET of
+// poseidon's, and the second reason it is declared here rather than aliased.
 type UnaryInvoker interface {
 	Invoke(ctx context.Context, method string, req []byte,
+		md []conn.HeaderField, opts ...grpc.CallOption) ([]byte, error)
+	InvokeInto(ctx context.Context, method string, req, dst []byte,
 		md []conn.HeaderField, opts ...grpc.CallOption) ([]byte, error)
 }
 

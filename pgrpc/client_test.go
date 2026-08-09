@@ -32,6 +32,20 @@ func (f *fakeInvoker) Invoke(_ context.Context, method string, req []byte,
 	return f.resp, f.err
 }
 
+func (f *fakeInvoker) InvokeInto(_ context.Context, method string, req, dst []byte,
+	md []conn.HeaderField, opts ...grpc.CallOption) ([]byte, error) {
+	f.calls++
+	f.method, f.md, f.opts = method, md, opts
+	f.req = append(f.req[:0], req...)
+	if f.err != nil {
+		// Mirror poseidon: dst[:0] rather than nil, so a looping caller keeps
+		// its buffer. A fake that returned nil here would hide a regression in
+		// the code that relies on that property.
+		return dst[:0], f.err
+	}
+	return append(dst, f.resp...), nil
+}
+
 func (f *fakeInvoker) NewStream(_ context.Context, _ string,
 	_ []conn.HeaderField, _ ...grpc.CallOption) (*grpc.Stream, error) {
 	return nil, errors.New("fakeInvoker cannot produce a *grpc.Stream")
