@@ -4,38 +4,68 @@ on:
     branches: [main]
   pull_request:
 
+# Two modules live here and neither `./...` reaches the other: the plugin
+# binary at the root, and the pgrpc runtime that generated code imports. Every
+# job is a matrix over both, or one of them rots unnoticed — which is what
+# happened to the contrib/prometheus module in the poseidon repo until it got
+# its own job.
+env:
+  MODULES: '[".", "pgrpc"]'
+
 jobs:
   lint:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ['.', 'pgrpc']
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: '1.25'
           cache: true
+          cache-dependency-path: ${{ matrix.module }}/go.sum
       - name: Install golangci-lint v2.5.0
         run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin v2.5.0
+      - run: gofmt -l . | tee /tmp/fmt && test ! -s /tmp/fmt
       - run: go vet ./...
       - run: golangci-lint run ./...
 
   test:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ['.', 'pgrpc']
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: '1.25'
           cache: true
+          cache-dependency-path: ${{ matrix.module }}/go.sum
       - run: go build ./...
       - run: go test -race -count=1 ./...
 
-  # go.mod pins a released poseidon, which is what a consumer of this plugin
-  # actually gets. This job runs the same tests against poseidon's main, so a
-  # breaking change to its grpc package surfaces here rather than in a user's
-  # build after they upgrade. Mirrors the contrib/prometheus job in the
-  # poseidon repo.
+  # pgrpc/go.mod pins a released poseidon, which is what a consumer of the
+  # generated code actually gets. This job runs the same tests against
+  # poseidon's main, so a breaking change to its grpc package surfaces here
+  # rather than in a user's build after they upgrade.
+  #
+  # Only pgrpc: the root plugin module does not import poseidon at all, so
+  # running this against it would test nothing.
   upstream-main:
     runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: pgrpc
     steps:
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
@@ -47,9 +77,10 @@ jobs:
         with:
           go-version: '1.25'
           cache: true
-      - name: Point at poseidon main
+          cache-dependency-path: pgrpc/go.sum
+      - name: Point pgrpc at poseidon main
         run: |
-          go mod edit -replace=github.com/lodgvideon/poseidon-http-client=./.upstream
+          go mod edit -replace=github.com/lodgvideon/poseidon-http-client=../.upstream
           go mod tidy
       - run: go build ./...
       - run: go test -race -count=1 ./...
