@@ -1,0 +1,10 @@
+# The golden tests compare generator output against checked-in files byte for
+# byte. The generator writes "\n", so a working tree checked out with CRLF —
+# which is what core.autocrlf=true does on Windows by default — would fail
+# every comparison on that platform and only on that platform. Pin the working
+# tree to LF so the golden files are the same bytes everywhere.
+* text=auto eol=lf
+
+# Descriptor sets are compiled protobuf. Never touch them.
+*.binpb binary
+*.bin    binary

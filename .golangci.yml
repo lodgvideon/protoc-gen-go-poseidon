@@ -1,0 +1,53 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - revive
+    - gosec
+    - unconvert
+    - misspell
+    - gocyclo
+    - unused
+    - prealloc
+    - ineffassign
+    # errorlint: a sentinel compared with == (or a bare type assertion) silently
+    # stops matching the moment that error is wrapped with %w. This package
+    # forwards *grpc.Status values from poseidon through several layers, and
+    # errors.As on that type is the whole contract — it has to keep working.
+    - errorlint
+  settings:
+    gocyclo:
+      min-complexity: 25
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
+    revive:
+      rules:
+        - name: unused-parameter
+          disabled: true
+        - name: exported
+          arguments:
+            - disableStutteringCheck
+            - disableChecksOnConstants
+  exclusions:
+    rules:
+      - path: _test\.go$
+        linters: [errcheck, gosec, errorlint]
+      # testdata/ holds generator *output*, not hand-written source. It is
+      # compiled by the golden tests to prove it builds; linting it would be
+      # linting the thing under test.
+      - path: ^testdata/
+        linters: [errcheck, govet, staticcheck, revive, gosec, unconvert, misspell, gocyclo, unused, prealloc, ineffassign, errorlint]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
