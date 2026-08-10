@@ -366,3 +366,50 @@ func TestRejectsMethodsWithCollidingGoNames(t *testing.T) {
 		}
 	}
 }
+
+// TestRejectsEveryCallerShadowingName completes the set edge.proto's Guarded
+// starts. Config is a plain redeclaration against the Caller's own method and
+// fails to build; Leave shadows pgrpc.Guard's promoted method by Go's depth
+// rule, so the generated body's own x.Leave() calls itself.
+//
+// Both live in ONE service, because checkService accumulates every problem in a
+// service before returning. A test that only ever saw the first would not
+// notice that accumulation breaking, and the user would then need one
+// regeneration per bad method.
+func TestRejectsEveryCallerShadowingName(t *testing.T) {
+	p, cfg := newPlugin(t, []string{"edge/reserved.proto"}, "")
+	err := Run(p, cfg)
+	if err == nil {
+		t.Fatal("methods named Config and Leave were accepted")
+	}
+	for _, want := range []string{"Config", "Leave", "edge.Reserved"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not mention %q: %v", want, err)
+		}
+	}
+}
+
+// TestUnexportIsUnreachableFromAValidProto records why the unexport failure
+// branch has no fixture: protoc refuses non-ASCII identifiers outright
+// ("non-ASCII identifiers are not allowed"), and GoCamelCase uppercases the
+// first letter of an ASCII name, so the generated service name always starts
+// with a rune that HAS a lower case.
+//
+// The branch stays because it guards an invariant the generator depends on —
+// the unexported implementation name must differ from the exported interface
+// name — and because nothing in this package would notice if a future protobuf
+// release relaxed the identifier rule. This test pins the helper's contract
+// directly, since no descriptor can reach it.
+func TestUnexportIsUnreachableFromAValidProto(t *testing.T) {
+	got, err := unexport("Greeter")
+	if err != nil || got != "greeter" {
+		t.Fatalf("unexport(Greeter) = %q, %v", got, err)
+	}
+	if _, err := unexport("世界Svc"); err == nil {
+		t.Error("a name whose first rune has no lower case was accepted; the " +
+			"implementation struct would then be named the same as the interface")
+	}
+	if _, err := unexport(""); err == nil {
+		t.Error("the empty name was accepted")
+	}
+}

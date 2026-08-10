@@ -119,9 +119,11 @@ pgrpc.NewClient(cc, pgrpc.WithCodec(vtcodec.Codec{}))
 ```
 
 `vtcodec` finds vtprotobuf's methods by interface probe, so it adds no module
-dependency, and falls back per message for a partly-generated schema. Three
-traps in that path are handled explicitly and each has a test — see the doc
-comments on `pgrpc/vtcodec`.
+dependency, and falls back per message for a partly-generated schema. Several
+ways to be silently wrong live in that path — a marshal that fills backwards, a
+`strict` feature that renames the method, a merge-shaped unmarshal, a reset that
+usually does not exist — and each is handled explicitly and tested. See
+[docs/CODECS.md](docs/CODECS.md).
 
 ## Naming
 
@@ -178,9 +180,9 @@ buildable at all.
 ## What is tested
 
 - Golden files over seven option combinations, including a bare boolean key.
-- Nine negative cases: the `Enter` shadow, colliding method Go names, the flat
-  mode, a keyword `package_suffix`, an invalid identifier, an empty one, an
-  unknown codec, an empty runtime import, and an unknown option.
+- Ten negative cases: the `Enter`/`Leave`/`Config` shadows, colliding method Go
+  names, the flat mode, a keyword `package_suffix`, an invalid identifier, an
+  empty one, an unknown codec, an empty runtime import, and an unknown option.
 - The checked-in fixture is compared against the golden, so the compile proof
   cannot pass on a stale file.
 - All four call shapes against grpc-go over a loopback socket, under `-race`,
@@ -197,7 +199,7 @@ buildable at all.
 - **No BSR remote plugin.** Local binary only.
 - **Flat mode** (`separate_package=false`) is deferred; it needs a mechanical
   gate over everything the two upstream generators can emit.
-- **`docs/` is one file.** Only the allocation figures are written up; the rest of the reasoning lives in doc comments.
+- **`docs/` covers allocations, codecs and generated code.** Anything else lives in doc comments.
 
 ## Upstream
 

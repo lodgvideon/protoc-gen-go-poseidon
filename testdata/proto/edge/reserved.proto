@@ -1,0 +1,21 @@
+// Config and Leave complete the set of Caller-shadowing names that edge.proto's
+// Guarded starts with. They are in ONE service on purpose: checkService
+// accumulates every problem in a service before returning, so a single
+// generation must name both, and a test that only ever sees the first would not
+// notice that accumulation breaking.
+syntax = "proto3";
+
+package edge;
+
+import "edge/edge.proto";
+
+option go_package = "github.com/lodgvideon/protoc-gen-go-poseidon/testdata/edge;edge";
+
+// Reserved has two methods that collide with the generated Caller's own method
+// set. Config is a plain redeclaration and fails to build. Leave is the
+// dangerous one: it shadows pgrpc.Guard's promoted method, so the generated
+// body's own x.Leave() would call itself.
+service Reserved {
+  rpc Config(Ping) returns (Pong) {}
+  rpc Leave(Ping) returns (Pong) {}
+}
