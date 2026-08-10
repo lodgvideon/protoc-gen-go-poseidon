@@ -1,0 +1,17 @@
+// The sibling of a.proto. See its header for why these two are a pair.
+//
+// GoCamelCase keeps an underscore that precedes an uppercase letter, so
+// service Foo with method Bar_Baz generates exactly the identifier that
+// service Foo_Bar with method Baz generates in a.proto.
+syntax = "proto3";
+
+package multi;
+
+import "multi/a.proto";
+
+option go_package = "github.com/lodgvideon/protoc-gen-go-poseidon/testdata/multi;multi";
+
+// Foo has a method Bar_Baz. Its full-method constant is also Foo_Bar_Baz_….
+service Foo {
+  rpc Bar_Baz(P) returns (P) {}
+}

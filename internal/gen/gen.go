@@ -13,6 +13,19 @@ func Run(p *protogen.Plugin, cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	// One nameset per OUTPUT PACKAGE, not per file, and it outlives the loop.
+	//
+	// Several .proto files routinely route into one Go package — that is what
+	// go_package is for — and their generated identifiers share that package's
+	// scope. A per-file set cannot see across the boundary, so `service Foo_Bar`
+	// with method `Baz` in one file and `service Foo` with method `Bar_Baz` in
+	// another both emit Foo_Bar_Baz_FullMethodName, generation reports success,
+	// and the user's build fails with "redeclared in this block" naming neither
+	// .proto. protoc-gen-go on the same inputs is clean, so the blame lands
+	// here.
+	sets := map[string]*nameset{}
+	var order []string
+
 	for _, f := range p.Files {
 		// p.Files carries transitive imports too; only the files protoc asked
 		// for may be generated.
@@ -26,7 +39,16 @@ func Run(p *protogen.Plugin, cfg Config) error {
 		if len(f.Services) == 0 {
 			continue
 		}
-		if err := generateFile(p, f, cfg); err != nil {
+		if err := generateFile(p, f, cfg, sets, &order); err != nil {
+			return err
+		}
+	}
+
+	// Reported after every file, so one run names every collision rather than
+	// making the user regenerate per fix. In declaration order, so the message
+	// does not shuffle between runs.
+	for _, k := range order {
+		if err := sets[k].err(); err != nil {
 			return err
 		}
 	}
@@ -43,19 +65,27 @@ type fileGen struct {
 }
 
 // generateFile emits the poseidon client file for f.
-func generateFile(p *protogen.Plugin, f *protogen.File, cfg Config) error {
+func generateFile(p *protogen.Plugin, f *protogen.File, cfg Config,
+	sets map[string]*nameset, order *[]string) error {
 	// path, not filepath: CodeGeneratorResponse file names are always
 	// slash-separated, including on Windows.
 	dir, base := path.Split(f.GeneratedFilenamePrefix)
 	filename := path.Join(dir, cfg.PackageSuffix, base) + "_poseidon.pb.go"
 	importPath := protogen.GoImportPath(path.Join(string(f.GoImportPath), cfg.PackageSuffix))
 
+	names, seen := sets[string(importPath)]
+	if !seen {
+		names = newNameset(string(importPath))
+		sets[string(importPath)] = names
+		*order = append(*order, string(importPath))
+	}
+
 	x := &fileGen{
 		g:     p.NewGeneratedFile(filename, importPath),
 		f:     f,
 		cfg:   cfg,
 		pkgs:  cfg.packages(),
-		names: newNameset(string(importPath)),
+		names: names,
 	}
 
 	x.header(p)
@@ -65,7 +95,10 @@ func generateFile(p *protogen.Plugin, f *protogen.File, cfg Config) error {
 		}
 		x.service(s)
 	}
-	return x.names.err()
+	// Conflicts are NOT reported here. The set is shared with every other file
+	// in this output package, and a file generated before its colliding sibling
+	// would otherwise pass.
+	return nil
 }
 
 // header emits the generated-file marker, the versions block and the package

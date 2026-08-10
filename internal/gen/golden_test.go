@@ -458,3 +458,35 @@ func TestDirectivesInProtoCommentsAreDefused(t *testing.T) {
 		}
 	}
 }
+
+// TestCollisionAcrossFilesInOnePackage is the regression for a nameset that
+// lived per FILE while the scope it guards is per PACKAGE.
+//
+// Each file here is internally consistent, so a per-file set sees nothing.
+// Together they emit one identifier twice, and the failure used to surface as
+// "redeclared in this block" in the USER's build, naming neither .proto.
+func TestCollisionAcrossFilesInOnePackage(t *testing.T) {
+	p, cfg := newPlugin(t, []string{"multi/a.proto", "multi/b.proto"}, "")
+	err := Run(p, cfg)
+	if err == nil {
+		t.Fatal("two files generating one identifier into one package were accepted")
+	}
+	for _, want := range []string{"Foo_Bar_Baz_FullMethodName", "multi.Foo_Bar", "multi.Foo"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not mention %q: %v", want, err)
+		}
+	}
+}
+
+// TestOneFileAloneIsFine is the control. Neither file collides with itself, so
+// a test that only ever generated one of them would pass on the broken build.
+func TestOneFileAloneIsFine(t *testing.T) {
+	for _, f := range []string{"multi/a.proto", "multi/b.proto"} {
+		t.Run(f, func(t *testing.T) {
+			p, cfg := newPlugin(t, []string{f}, "")
+			if err := Run(p, cfg); err != nil {
+				t.Errorf("%s alone was rejected: %v", f, err)
+			}
+		})
+	}
+}

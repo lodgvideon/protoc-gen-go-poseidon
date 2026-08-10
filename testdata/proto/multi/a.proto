@@ -1,0 +1,23 @@
+// Two files, one Go package, one generated identifier between them.
+//
+// go_package routes both of these into the same output package, so their
+// generated names share one scope. A generator that tracked names per FILE
+// cannot see the collision: each file is internally consistent, generation
+// reports success, and the user's build fails with "redeclared in this block"
+// naming neither .proto. protoc-gen-go on the same inputs is clean, so the
+// blame lands on this plugin.
+syntax = "proto3";
+
+package multi;
+
+option go_package = "github.com/lodgvideon/protoc-gen-go-poseidon/testdata/multi;multi";
+
+// Foo_Bar has a method Baz. Its full-method constant is Foo_Bar_Baz_….
+service Foo_Bar {
+  rpc Baz(P) returns (P) {}
+}
+
+// P is the only message either file needs.
+message P {
+  string v = 1;
+}
