@@ -14,9 +14,19 @@ import (
 )
 
 // maxStreams is deliberately tiny. A leaked stream is invisible on a connection
-// that allows thousands; against four, the sixth abandoned iteration wedges the
+// that allows thousands; against four, the fifth abandoned iteration wedges the
 // connection and the test fails with a timeout instead of passing quietly.
 const maxStreams = 4
+
+// A leak is also invisible against a server that FINISHES. If the handler sends
+// its last reply and returns, the stream ends from the far side and poseidon
+// releases the slot whether or not anyone called Close — so an abandoned
+// iteration costs nothing and the test passes on a broken build. Mutation
+// testing caught exactly that: restoring the defect left this suite green.
+//
+// So the fixture server keeps producing. Each abandoned stream then really does
+// hold its slot, which is the condition the assertion needs.
+var busyServer = &greeter{replies: 100_000, echoDelay: 2 * time.Millisecond}
 
 func streamingClient(t *testing.T, impl *greeter, opts ...grpcgo.ServerOption) poseidon.GreeterClient {
 	t.Helper()
@@ -32,11 +42,11 @@ func streamingClient(t *testing.T, impl *greeter, opts ...grpcgo.ServerOption) p
 // The assertion is not "Close was called"; it is that the connection still
 // works after more abandoned iterations than it has stream slots.
 func TestAllClosesOnPanic(t *testing.T) {
-	c := streamingClient(t, &greeter{replies: 8}, grpcgo.MaxConcurrentStreams(maxStreams))
+	c := streamingClient(t, busyServer, grpcgo.MaxConcurrentStreams(maxStreams))
 	ctx := testCtx(t)
 	req := &helloworld.HelloRequest{Name: "n"}
 
-	for i := range maxStreams * 2 {
+	for i := range maxStreams + 1 {
 		func() {
 			defer func() {
 				if recover() == nil {
@@ -62,10 +72,10 @@ func TestAllClosesOnPanic(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("a call after %d abandoned iterations failed: %v", maxStreams*2, err)
+			t.Fatalf("a call after %d abandoned iterations failed: %v", maxStreams+1, err)
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatalf("the connection is wedged: %d abandoned iterations leaked their streams", maxStreams*2)
+	case <-time.After(15 * time.Second):
+		t.Fatalf("the connection is wedged: %d abandoned iterations leaked their streams", maxStreams+1)
 	}
 }
 
@@ -74,11 +84,11 @@ func TestAllClosesOnPanic(t *testing.T) {
 // it is here so the panic case above is not the only thing holding the
 // iterator's contract.
 func TestAllClosesOnBreak(t *testing.T) {
-	c := streamingClient(t, &greeter{replies: 8}, grpcgo.MaxConcurrentStreams(maxStreams))
+	c := streamingClient(t, busyServer, grpcgo.MaxConcurrentStreams(maxStreams))
 	ctx := testCtx(t)
 	req := &helloworld.HelloRequest{Name: "n"}
 
-	for i := range maxStreams * 2 {
+	for i := range maxStreams + 1 {
 		s, err := c.LotsOfReplies(ctx, req)
 		if err != nil {
 			t.Fatalf("iteration %d: open: %v", i, err)
@@ -89,7 +99,7 @@ func TestAllClosesOnBreak(t *testing.T) {
 	}
 
 	if _, err := c.SayHello(ctx, req); err != nil {
-		t.Fatalf("a call after %d broken iterations failed: %v", maxStreams*2, err)
+		t.Fatalf("a call after %d broken iterations failed: %v", maxStreams+1, err)
 	}
 }
 
@@ -100,7 +110,7 @@ func TestAllClosesOnBreak(t *testing.T) {
 // and its stream slot — while baseStream.Close's own doc says a Close from the
 // receiving goroutine is safe.
 func TestCloseFromInsideAllDoesNotDeadlock(t *testing.T) {
-	c := streamingClient(t, &greeter{replies: 8})
+	c := streamingClient(t, busyServer)
 	ctx := testCtx(t)
 
 	s, err := c.LotsOfReplies(ctx, &helloworld.HelloRequest{Name: "n"})
@@ -119,7 +129,7 @@ func TestCloseFromInsideAllDoesNotDeadlock(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("Close() from inside the loop body deadlocked")
 	}
 }
@@ -127,7 +137,7 @@ func TestCloseFromInsideAllDoesNotDeadlock(t *testing.T) {
 // TestRecvAfterCloseFromTheBody states what the caller sees afterwards: the
 // stream is closed, not merely un-deadlocked.
 func TestRecvAfterCloseFromTheBody(t *testing.T) {
-	c := streamingClient(t, &greeter{replies: 8})
+	c := streamingClient(t, busyServer)
 	ctx := testCtx(t)
 
 	s, err := c.LotsOfReplies(ctx, &helloworld.HelloRequest{Name: "n"})
