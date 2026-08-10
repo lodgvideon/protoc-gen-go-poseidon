@@ -1,0 +1,28 @@
+// A third file that declares the SAME go_package as multi/a.proto while living
+// in a different source directory.
+//
+// Where it lands depends on the paths option, and so does whether it can
+// collide at all:
+//
+//   default            output is derived from go_package, so this file lands
+//                      beside a.proto and its identifiers really do share a
+//                      scope — the collision is real and must be reported
+//   source_relative    output lands beside the .proto, in multi/sub/, so this
+//                      is a different Go package and there is nothing to
+//                      collide with
+//
+// Keying the nameset on the import path collapsed those two cases and reported
+// the second as a collision: a refusal to generate perfectly valid input, of a
+// kind that could not happen before the set became shared.
+syntax = "proto3";
+
+package multi.sub;
+
+import "multi/a.proto";
+
+option go_package = "github.com/lodgvideon/protoc-gen-go-poseidon/testdata/multi;multi";
+
+// Foo_Bar here generates the same full-method constant as multi/a.proto's.
+service Foo_Bar {
+  rpc Baz(multi.P) returns (multi.P) {}
+}

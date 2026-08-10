@@ -490,3 +490,34 @@ func TestOneFileAloneIsFine(t *testing.T) {
 		})
 	}
 }
+
+// TestCollisionKeyIsTheOutputDirectory pins the distinction the nameset key
+// has to make, and it is a distinction only the OUTPUT PATH can see.
+//
+// multi/sub/c.proto declares the same go_package as multi/a.proto from a
+// different source directory, and generates the same identifier. Under the
+// default paths the output is derived from go_package, so both land in one
+// directory and the collision is real. Under paths=source_relative each lands
+// beside its own .proto, so they are two Go packages and there is nothing to
+// collide with — reporting one there is a refusal to generate valid input.
+func TestCollisionKeyIsTheOutputDirectory(t *testing.T) {
+	files := []string{"multi/a.proto", "multi/sub/c.proto"}
+
+	t.Run("same output directory collides", func(t *testing.T) {
+		p, cfg := newPlugin(t, files, "")
+		err := Run(p, cfg)
+		if err == nil {
+			t.Fatal("two files generating one identifier into one directory were accepted")
+		}
+		if !strings.Contains(err.Error(), "Foo_Bar_Baz_FullMethodName") {
+			t.Errorf("the error does not name the identifier: %v", err)
+		}
+	})
+
+	t.Run("different output directories do not", func(t *testing.T) {
+		p, cfg := newPlugin(t, files, "paths=source_relative")
+		if err := Run(p, cfg); err != nil {
+			t.Errorf("two files in different output directories were reported as colliding: %v", err)
+		}
+	})
+}

@@ -13,7 +13,7 @@ func Run(p *protogen.Plugin, cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	// One nameset per OUTPUT PACKAGE, not per file, and it outlives the loop.
+	// One nameset per OUTPUT DIRECTORY, not per file, and it outlives the loop.
 	//
 	// Several .proto files routinely route into one Go package — that is what
 	// go_package is for — and their generated identifiers share that package's
@@ -23,6 +23,21 @@ func Run(p *protogen.Plugin, cfg Config) error {
 	// and the user's build fails with "redeclared in this block" naming neither
 	// .proto. protoc-gen-go on the same inputs is clean, so the blame lands
 	// here.
+	//
+	// The key is the output DIRECTORY rather than the Go import path, because
+	// under paths=source_relative the two disagree: the import path comes from
+	// go_package while the file lands beside its .proto. Keying on the import
+	// path then reports two files that share a go_package but sit in different
+	// directories as colliding, although they compile into two different Go
+	// packages and cannot collide at all. The directory is where the files
+	// actually meet, so it is the identity that matters.
+	//
+	// HONEST SCOPE, and it is narrower than it looks: this covers ONE PLUGIN
+	// INVOCATION. buf's default strategy runs the plugin once per source
+	// directory, so two colliding files in different source directories are
+	// never seen together and the check cannot fire. protoc passes the whole
+	// set at once, where it does. Nothing inside a plugin can widen this — the
+	// request is all it gets.
 	sets := map[string]*nameset{}
 	var order []string
 
@@ -73,11 +88,12 @@ func generateFile(p *protogen.Plugin, f *protogen.File, cfg Config,
 	filename := path.Join(dir, cfg.PackageSuffix, base) + "_poseidon.pb.go"
 	importPath := protogen.GoImportPath(path.Join(string(f.GoImportPath), cfg.PackageSuffix))
 
-	names, seen := sets[string(importPath)]
+	outDir := path.Join(dir, cfg.PackageSuffix)
+	names, seen := sets[outDir]
 	if !seen {
-		names = newNameset(string(importPath))
-		sets[string(importPath)] = names
-		*order = append(*order, string(importPath))
+		names = newNameset(outDir)
+		sets[outDir] = names
+		*order = append(*order, outDir)
 	}
 
 	x := &fileGen{

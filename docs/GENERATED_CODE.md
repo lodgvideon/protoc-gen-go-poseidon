@@ -15,6 +15,15 @@ argument: distinct Go package blocks are disjoint scopes, so nothing emitted
 here can collide with `protoc-gen-go`'s or `protoc-gen-go-grpc`'s output. The
 sub-package imports the message package; never the reverse.
 
+Identifiers emitted by *this* plugin are tracked per **output directory**, so
+several `.proto` files routing into one Go package cannot silently emit the same
+name. That check has an honest limit worth knowing: it covers **one plugin
+invocation**. `buf`'s default strategy runs the plugin once per source
+directory, so two colliding files in different source directories are never
+seen together and the check cannot fire; `protoc` passes the whole set at once,
+where it can. Nothing inside a plugin can widen that — the request is all it
+gets.
+
 The alternative — a "magic infix" in the shared package — is not provable.
 `GoCamelCase` drops `_` only before a lowercase letter, so for any identifier a
 plugin might reserve there is a `.proto` symbol that produces exactly it.
