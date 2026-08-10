@@ -44,9 +44,15 @@ type greeter struct {
 	// echoDelay is inserted before each streamed reply, so a test can close a
 	// stream while the server is still producing.
 	echoDelay time.Duration
+	// unaryDelay holds SayHello open, so a test can have a second call arrive
+	// while the first is genuinely in flight rather than hoping for a race.
+	unaryDelay time.Duration
 }
 
 func (g *greeter) sayHello(ctx context.Context, in *helloworld.HelloRequest) (*helloworld.HelloReply, error) {
+	if g.unaryDelay > 0 {
+		time.Sleep(g.unaryDelay)
+	}
 	if len(g.unaryHeader) > 0 {
 		if err := grpcgo.SendHeader(ctx, g.unaryHeader); err != nil {
 			return nil, err
@@ -241,4 +247,12 @@ func statusOf(err error) (codes.Code, string) {
 // the connection once outside its measured loop.
 func newClientOn(cc *poseidongrpc.ClientConn) poseidon.GreeterClient {
 	return poseidon.NewGreeterClientOn(cc)
+}
+
+// newCallerWithOptions builds a Caller over a fresh connection with client-wide
+// options, which is what the default-call-options regression needs.
+func newCallerWithOptions(t testing.TB, impl *greeter, opts ...pgrpc.ClientOption) *poseidon.GreeterCaller {
+	t.Helper()
+	all := append([]pgrpc.ClientOption{pgrpc.WithCodec(protocodec.Codec{})}, opts...)
+	return poseidon.NewGreeterCaller(pgrpc.NewClient(dial(t, serve(t, impl)), all...))
 }

@@ -11,7 +11,7 @@ package version
 //
 // A -dev suffix means the build is between releases: generated output from it
 // is not covered by any compatibility promise.
-const Version = "0.1.0-dev"
+const Version = "0.1.0"
 
 // String returns the version in the form the --version flag prints, matching
 // protoc-gen-go's "protoc-gen-go v1.36.11" convention.

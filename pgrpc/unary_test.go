@@ -82,13 +82,13 @@ func TestUnaryShortCircuitsOnConfigError(t *testing.T) {
 
 	cfg := &pgrpc.CallConfig{}
 	cfg.Apply(pgrpc.WithHeaderString("content-type", "nope")) // reserved
-	if cfg.Err == nil {
+	if cfg.Err() == nil {
 		t.Fatal("setup: expected a config error")
 	}
 
 	err := pgrpc.Unary(context.Background(), c, cfg, testMethod,
 		wrapperspb.String("x"), &wrapperspb.StringValue{}, nil, nil)
-	if !errors.Is(err, cfg.Err) {
+	if !errors.Is(err, cfg.Err()) {
 		t.Errorf("err = %v, want the latched config error", err)
 	}
 	if f.calls != 0 {

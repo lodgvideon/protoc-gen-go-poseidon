@@ -106,7 +106,9 @@ func TestCodecForIsTheSingleResolutionRule(t *testing.T) {
 	if got := c.CodecFor(&pgrpc.CallConfig{}).Name(); got != "client" {
 		t.Errorf("CodecFor(empty) = %q, want the client's", got)
 	}
-	if got := c.CodecFor(&pgrpc.CallConfig{Codec: callCodec}).Name(); got != "call" {
+	var override pgrpc.CallConfig
+	override.SetCodec(callCodec)
+	if got := c.CodecFor(&override).Name(); got != "call" {
 		t.Errorf("CodecFor(override) = %q, want the call's", got)
 	}
 }
@@ -131,11 +133,11 @@ func TestDefaultCallOptionsAccumulateInOrder(t *testing.T) {
 
 	var cfg pgrpc.CallConfig
 	cfg.Apply(c.DefaultCallOptions()...)
-	if cfg.Err != nil {
-		t.Fatalf("applying defaults: %v", cfg.Err)
+	if cfg.Err() != nil {
+		t.Fatalf("applying defaults: %v", cfg.Err())
 	}
-	if len(cfg.MD) != 2 || string(cfg.MD[0].Name) != "a" || string(cfg.MD[1].Name) != "b" {
-		t.Errorf("defaults applied out of order: %v", cfg.MD)
+	if len(cfg.Metadata()) != 2 || string(cfg.Metadata()[0].Name) != "a" || string(cfg.Metadata()[1].Name) != "b" {
+		t.Errorf("defaults applied out of order: %v", cfg.Metadata())
 	}
 }
 
@@ -154,10 +156,10 @@ func TestDefaultMetadataIsNotWrittenThroughByACall(t *testing.T) {
 		var cfg pgrpc.CallConfig
 		cfg.Apply(c.DefaultCallOptions()...)
 		cfg.Apply(pgrpc.WithHeaderString("x-request-id", id))
-		if cfg.Err != nil {
-			t.Fatalf("resolve: %v", cfg.Err)
+		if cfg.Err() != nil {
+			t.Fatalf("resolve: %v", cfg.Err())
 		}
-		return cfg.MD
+		return cfg.Metadata()
 	}
 
 	first := build("r-1")

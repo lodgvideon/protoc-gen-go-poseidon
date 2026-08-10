@@ -116,7 +116,7 @@ func (x *greeterClient) BidiHello(ctx context.Context, opts ...pgrpc.CallOption)
 //
 // Greeter is the canonical four-shape service.
 type GreeterCaller struct {
-	pgrpc.Guard
+	guard   pgrpc.Guard
 	c       *pgrpc.Client
 	cfg     pgrpc.CallConfig
 	buf     []byte
@@ -125,7 +125,7 @@ type GreeterCaller struct {
 
 // NewGreeterCaller returns the buffer-reusing face of Greeter over c.
 func NewGreeterCaller(c *pgrpc.Client) *GreeterCaller {
-	return &GreeterCaller{c: c}
+	return &GreeterCaller{c: c, cfg: pgrpc.NewCallConfig(c)}
 }
 
 // NewGreeterCallerOn builds a pgrpc.Client over cc with the protobuf codec and
@@ -143,39 +143,39 @@ func (x *GreeterCaller) Config() *pgrpc.CallConfig { return &x.cfg }
 
 // SayHello is the unary shape: one request, one reply.
 func (x *GreeterCaller) SayHello(ctx context.Context, in *helloworld.HelloRequest, out *helloworld.HelloReply) error {
-	if err := x.Enter(); err != nil {
+	if err := x.guard.Enter(); err != nil {
 		return err
 	}
-	defer x.Leave()
+	defer x.guard.Leave()
 	return pgrpc.Unary(ctx, x.c, &x.cfg, Greeter_SayHello_FullMethodName, in, out, &x.buf, &x.respBuf)
 }
 
 // LotsOfReplies is the server-streaming shape: one request, a stream of
 // replies.
 func (x *GreeterCaller) LotsOfReplies(ctx context.Context, in *helloworld.HelloRequest) (*pgrpc.ServerStream[helloworld.HelloReply], error) {
-	if err := x.Enter(); err != nil {
+	if err := x.guard.Enter(); err != nil {
 		return nil, err
 	}
-	defer x.Leave()
+	defer x.guard.Leave()
 	return pgrpc.NewServerStream[helloworld.HelloReply](ctx, x.c.Invoker(), x.c.CodecFor(&x.cfg), &x.cfg, Greeter_LotsOfReplies_FullMethodName, in, &x.buf)
 }
 
 // LotsOfGreetings is the client-streaming shape: a stream of requests, one
 // reply.
 func (x *GreeterCaller) LotsOfGreetings(ctx context.Context) (*pgrpc.ClientStream[helloworld.HelloRequest, helloworld.HelloReply], error) {
-	if err := x.Enter(); err != nil {
+	if err := x.guard.Enter(); err != nil {
 		return nil, err
 	}
-	defer x.Leave()
+	defer x.guard.Leave()
 	return pgrpc.NewClientStream[helloworld.HelloRequest, helloworld.HelloReply](ctx, x.c.Invoker(), x.c.CodecFor(&x.cfg), &x.cfg, Greeter_LotsOfGreetings_FullMethodName, 0)
 }
 
 // BidiHello is the bidirectional shape: a stream each way, independently
 // driven.
 func (x *GreeterCaller) BidiHello(ctx context.Context) (*pgrpc.BidiStream[helloworld.HelloRequest, helloworld.HelloReply], error) {
-	if err := x.Enter(); err != nil {
+	if err := x.guard.Enter(); err != nil {
 		return nil, err
 	}
-	defer x.Leave()
+	defer x.guard.Leave()
 	return pgrpc.NewBidiStream[helloworld.HelloRequest, helloworld.HelloReply](ctx, x.c.Invoker(), x.c.CodecFor(&x.cfg), &x.cfg, Greeter_BidiHello_FullMethodName, 0)
 }

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -201,25 +202,41 @@ func TestGoldenFilesAreLF(t *testing.T) {
 // method named Enter shadows pgrpc.Guard.Enter on the generated Caller, and the
 // generated body's own x.Enter() then recurses forever with no diagnostic
 // anywhere. Generation must refuse.
-func TestRejectsMethodShadowingTheGuard(t *testing.T) {
+// TestAcceptsMethodsNamedEnterAndLeave pins the un-embedding of pgrpc.Guard.
+//
+// These names used to be refused, because the Guard was an EMBEDDED field and
+// its methods were promoted onto every Caller: a generated method named Enter
+// shadowed the promoted one by Go's depth rule, and the body's own x.Enter()
+// called itself. Infinite recursion, no compiler diagnostic.
+//
+// Refusing them was the wrong half of the trade. It meant pgrpc's method set
+// leaked into every user's .proto namespace, and every method ever added to
+// Guard would retroactively forbid another name. The Guard is a named field
+// now, so these are ordinary methods — and the generated body says so.
+func TestAcceptsMethodsNamedEnterAndLeave(t *testing.T) {
 	p, cfg := newPlugin(t, []string{edgeProto}, "")
-	err := Run(p, cfg)
-	if err == nil {
-		t.Fatal("a method named Enter was accepted; the generated Caller would recurse forever")
+	_, content := runGen(t, p, cfg)
+	if !strings.Contains(content, "func (x *GuardedCaller) Enter(") {
+		t.Error("the generated Caller has no Enter method")
 	}
-	for _, want := range []string{"Enter", "Guard", "edge.Guarded"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the error does not mention %q: %v", want, err)
-		}
+	// The proof the shadow is gone: the guard is reached through the field, so
+	// the generated Enter cannot be calling itself.
+	if !strings.Contains(content, "x.guard.Enter()") {
+		t.Error("the generated body does not go through the guard field")
+	}
+	// gofmt aligns struct fields, so the field and its type are separated by
+	// run-length padding rather than one space.
+	if !regexp.MustCompile(`guard\s+pgrpc\.Guard`).MatchString(content) {
+		t.Error("pgrpc.Guard is not a named field; embedding it exports Enter and Leave")
 	}
 }
 
 // TestGuardCollisionIsAllowedWithoutCallers pins that the check is tied to the
 // face that actually embeds the Guard. With callers=false nothing is shadowed.
-func TestRejectsGuardShadowOnlyWhenCallersAreEmitted(t *testing.T) {
+func TestEnterAndLeaveAreFineWithoutCallersToo(t *testing.T) {
 	p, cfg := newPlugin(t, []string{edgeProto}, "callers=false")
 	if err := Run(p, cfg); err != nil {
-		t.Errorf("callers=false still rejected a method named Enter: %v", err)
+		t.Errorf("callers=false rejected a method named Enter: %v", err)
 	}
 }
 
@@ -367,25 +384,24 @@ func TestRejectsMethodsWithCollidingGoNames(t *testing.T) {
 	}
 }
 
-// TestRejectsEveryCallerShadowingName completes the set edge.proto's Guarded
-// starts. Config is a plain redeclaration against the Caller's own method and
-// fails to build; Leave shadows pgrpc.Guard's promoted method by Go's depth
-// rule, so the generated body's own x.Leave() calls itself.
-//
-// Both live in ONE service, because checkService accumulates every problem in a
-// service before returning. A test that only ever saw the first would not
-// notice that accumulation breaking, and the user would then need one
-// regeneration per bad method.
-func TestRejectsEveryCallerShadowingName(t *testing.T) {
+// TestRejectsOnlyTheCallersOwnMethodName is the reserved list at its final
+// size. Config redeclares the Caller's own method and is refused; Leave sits in
+// the same service and is not, because pgrpc.Guard is no longer embedded.
+func TestRejectsOnlyTheCallersOwnMethodName(t *testing.T) {
 	p, cfg := newPlugin(t, []string{"edge/reserved.proto"}, "")
 	err := Run(p, cfg)
 	if err == nil {
 		t.Fatal("methods named Config and Leave were accepted")
 	}
-	for _, want := range []string{"Config", "Leave", "edge.Reserved"} {
+	for _, want := range []string{"Config", "edge.Reserved"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the error does not mention %q: %v", want, err)
 		}
+	}
+	// Leave is in that same service and must NOT be refused any more. Asserting
+	// its absence is what stops the reserved list from quietly regrowing.
+	if strings.Contains(err.Error(), "Leave") {
+		t.Errorf("Leave is still reserved; only the Caller's own methods should be: %v", err)
 	}
 }
 

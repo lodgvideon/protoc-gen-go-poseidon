@@ -23,5 +23,5 @@ package pgrpc
 func (c *Client) resolve(cfg *CallConfig, opts []CallOption) error {
 	cfg.Apply(c.defOpts...)
 	cfg.Apply(opts...)
-	return cfg.Err
+	return cfg.Err()
 }

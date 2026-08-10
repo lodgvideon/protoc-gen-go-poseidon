@@ -116,8 +116,8 @@ func BenchmarkOptionResolution(b *testing.B) {
 	for b.Loop() {
 		var cfg pgrpc.CallConfig
 		cfg.Apply(pgrpc.WithMetadata(md))
-		if cfg.Err != nil {
-			b.Fatal(cfg.Err)
+		if err := cfg.Err(); err != nil {
+			b.Fatal(err)
 		}
 	}
 }
@@ -173,8 +173,8 @@ func BenchmarkMetadataAppendMetadata(b *testing.B) {
 			pgrpc.WithHeader("x-request-id", id),
 			pgrpc.WithHeader("x-trace-bin", id),
 		)
-		if cfg.Err != nil {
-			b.Fatal(cfg.Err)
+		if err := cfg.Err(); err != nil {
+			b.Fatal(err)
 		}
 	}
 }

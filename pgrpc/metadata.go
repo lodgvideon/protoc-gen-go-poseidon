@@ -234,7 +234,7 @@ func (m *Metadata) binary(key string, value []byte, replace bool) error {
 	return nil
 }
 
-// Fields returns the built slice, for WithMetadata or for CallConfig.MD.
+// Fields returns the built slice, for WithMetadata or for CallConfig.SetMetadata.
 //
 // It aliases this builder and is invalidated by the next mutation or Reset.
 //

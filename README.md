@@ -5,10 +5,10 @@ A `protoc` plugin that generates typed gRPC **clients** on
 from-scratch HTTP/2 stack — what `protoc-gen-go-grpc` does for grpc-go, without
 linking grpc-go at all.
 
-> **Status: working, unreleased.** Every call shape round-trips against a real
-> grpc-go server under `-race`, and CI builds five modules on every push. There
-> is no tag yet and the generated API is not frozen. See
-> [What is not done](#what-is-not-done).
+> **Status: ready to tag as v0.1.0.** Every call shape round-trips against a
+> real grpc-go server under `-race`, and CI builds five modules on every push.
+> An adversarial pre-tag review found five things that would have frozen wrong;
+> all five are fixed. See [What is not done](#what-is-not-done).
 
 ## Why
 
@@ -140,9 +140,10 @@ Two service shapes are refused outright:
 
 - two methods whose Go names coincide (`SayHello` and `say_hello`), which would
   be a redeclaration;
-- a method named `Enter` or `Leave`, which would shadow `pgrpc.Guard`'s promoted
-  method on the Caller and turn the generated body's own `x.Enter()` into
-  infinite recursion — the only collision here that the compiler cannot catch.
+- a method named `Config`, which would redeclare the Caller's own method.
+  (`Enter` and `Leave` used to be refused too, because `pgrpc.Guard` was
+  embedded and its methods promoted. It is a named field now, so those names are
+  yours again — and no future `Guard` method can retroactively forbid one.)
 
 ## Options
 
@@ -180,9 +181,12 @@ buildable at all.
 ## What is tested
 
 - Golden files over seven option combinations, including a bare boolean key.
-- Ten negative cases: the `Enter`/`Leave`/`Config` shadows, colliding method Go
-  names, the flat mode, a keyword `package_suffix`, an invalid identifier, an
-  empty one, an unknown codec, an empty runtime import, and an unknown option.
+- Ten negative cases: the `Config` shadow, colliding method Go names, the flat
+  mode, a keyword `package_suffix`, an invalid identifier, an empty one, an
+  unknown codec, an empty runtime import, and an unknown option.
+- The metadata ownership rules, including the three that a pre-tag review
+  reproduced as a wrong credential on the wire: re-installing a slice after the
+  config adopted, `Reset` on a re-installed slice, and a value copy.
 - The checked-in fixture is compared against the golden, so the compile proof
   cannot pass on a stale file.
 - All four call shapes against grpc-go over a loopback socket, under `-race`,
@@ -192,7 +196,7 @@ buildable at all.
 
 ## What is not done
 
-- **No release tag.** The generated API may still change.
+- **The tag itself.** The version constant reads `0.1.0` and the repository is ready; only the git tag is outstanding.
 - **The client's share of a streaming call is not separable.** A stream needs a
   real server in-process, so only the difference between paired arms is
   attributable; see [docs/ALLOCATIONS.md](docs/ALLOCATIONS.md).

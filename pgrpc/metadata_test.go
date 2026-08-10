@@ -289,7 +289,7 @@ func TestMetadataFeedsWithMetadata(t *testing.T) {
 	}
 	var cfg pgrpc.CallConfig
 	cfg.Apply(pgrpc.WithMetadata(m.Fields()))
-	if len(cfg.MD) != 1 || string(cfg.MD[0].Name) != "x-tenant" {
-		t.Errorf("CallConfig.MD = %v", cfg.MD)
+	if len(cfg.Metadata()) != 1 || string(cfg.Metadata()[0].Name) != "x-tenant" {
+		t.Errorf("CallConfig.MD = %v", cfg.Metadata())
 	}
 }

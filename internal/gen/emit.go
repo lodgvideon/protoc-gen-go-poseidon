@@ -257,7 +257,7 @@ func (x *fileGen) caller(s *protogen.Service) {
 		"// corrupting a request body.", s.Comments.Leading)
 
 	g.P("type ", name, " struct {")
-	g.P(x.pkgs.pgrpc.Ident("Guard"))
+	g.P("guard ", x.pkgs.pgrpc.Ident("Guard"))
 	g.P("c *", x.pkgs.pgrpc.Ident("Client"))
 	g.P("cfg ", x.pkgs.pgrpc.Ident("CallConfig"))
 	g.P("buf []byte")
@@ -268,7 +268,7 @@ func (x *fileGen) caller(s *protogen.Service) {
 	ctor := x.names.claim("New"+name, "the caller constructor for "+string(s.Desc.FullName()))
 	g.P("// ", ctor, " returns the buffer-reusing face of ", s.GoName, " over c.")
 	g.P("func ", ctor, "(c *", x.pkgs.pgrpc.Ident("Client"), ") *", name, " {")
-	g.P("return &", name, "{c: c}")
+	g.P("return &", name, "{c: c, cfg: ", x.pkgs.pgrpc.Ident("NewCallConfig"), "(c)}")
 	g.P("}")
 	g.P()
 
@@ -317,14 +317,14 @@ func (x *fileGen) callerMethod(s *protogen.Service, m *protogen.Method, recv str
 	}
 	g.P(parts...)
 
-	g.P("if err := x.Enter(); err != nil {")
+	g.P("if err := x.guard.Enter(); err != nil {")
 	if unary {
 		g.P("return err")
 	} else {
 		g.P("return nil, err")
 	}
 	g.P("}")
-	g.P("defer x.Leave()")
+	g.P("defer x.guard.Leave()")
 
 	switch streamKind(m) {
 	case "":

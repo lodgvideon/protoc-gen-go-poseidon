@@ -42,8 +42,8 @@ import "context"
 //     are not *Status values — see StatusOf.
 func Unary(ctx context.Context, c *Client, cfg *CallConfig,
 	method string, in, out any, scratch, respScratch *[]byte) error {
-	if cfg.Err != nil {
-		return cfg.Err
+	if err := cfg.Err(); err != nil {
+		return err
 	}
 	cd := c.CodecFor(cfg)
 	if scratch == nil {
@@ -68,7 +68,7 @@ func Unary(ctx context.Context, c *Client, cfg *CallConfig,
 	}
 	*scratch = req // keep the grown array
 
-	raw, err := unaryRaw(ctx, c.Invoker(), method, req, (*respScratch)[:0], cfg.MD, cfg.Pass)
+	raw, err := unaryRaw(ctx, c.Invoker(), method, req, (*respScratch)[:0], cfg.Metadata(), cfg.PoseidonOptions())
 	// InvokeInto returns dst[:0] rather than nil on error, precisely so that a
 	// looping caller keeps its buffer. Storing the result on BOTH paths is what
 	// preserves that property here.

@@ -96,7 +96,7 @@ should be built once with `grpc.AppendMetadata` and passed through
 One allocation is the escaping `CallConfig`, the other is the option value
 itself: a struct carrying a slice header does not fit in an interface word, so
 every `WithMetadata(md)` is boxed. This is why the documented allocation-free
-form is assigning `CallConfig.MD` once, outside the request loop, rather than
+form is calling `CallConfig.SetMetadata` once, outside the request loop, rather than
 passing an option per call.
 
 ## Streaming

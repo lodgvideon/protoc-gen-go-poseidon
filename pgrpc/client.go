@@ -133,8 +133,26 @@ func (c *Client) DefaultCallOptions() []CallOption { return c.defOpts }
 // unexported helper would push it towards Codec(), which silently ignores
 // cfg.Codec.
 func (c *Client) CodecFor(cfg *CallConfig) Codec {
-	if cfg != nil && cfg.Codec != nil {
-		return cfg.Codec
+	if cfg != nil && cfg.Codec() != nil {
+		return cfg.Codec()
 	}
 	return c.codec
+}
+
+// NewCallConfig returns a CallConfig with c's default call options already
+// applied.
+//
+// It exists because the resolved-config entry points take a config the caller
+// prepared, and a caller that built one with `var cfg CallConfig` silently got
+// NONE of the client's defaults — the Client face sent them and the Caller face
+// did not, from the same *Client and the same option. Generated callers are
+// constructed through this.
+//
+// Returning by value is safe: the copy handed back does not own the metadata
+// the local one adopted, so its first modification copies rather than writing
+// into an array this function no longer tracks.
+func NewCallConfig(c *Client) CallConfig {
+	var cfg CallConfig
+	cfg.Apply(c.defOpts...)
+	return cfg
 }

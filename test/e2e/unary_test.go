@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/lodgvideon/protoc-gen-go-poseidon/pgrpc"
+	"github.com/lodgvideon/protoc-gen-go-poseidon/pgrpc/protocodec"
 	"github.com/lodgvideon/protoc-gen-go-poseidon/testdata/helloworld"
+	"github.com/lodgvideon/protoc-gen-go-poseidon/testdata/helloworld/poseidon"
 )
 
 func TestUnary(t *testing.T) {
@@ -115,20 +118,78 @@ func TestCallerUnaryOnTheWire(t *testing.T) {
 }
 
 // TestCallerRejectsConcurrentUse pins the guard on the real path. A Caller owns
-// one scratch buffer, so the second caller must get an error rather than a
-// corrupted request body.
+// one scratch buffer and one config, so the second caller must get an error
+// rather than a corrupted request body.
+//
+// The server holds the first call open, so the second arrives while the first
+// is genuinely in flight — hoping two goroutines happen to overlap would make
+// this pass on a bad build.
 func TestCallerRejectsConcurrentUse(t *testing.T) {
-	x := newCaller(t, &greeter{})
+	x := newCaller(t, &greeter{unaryDelay: 300 * time.Millisecond})
 	ctx := testCtx(t)
 
-	if err := x.Enter(); err != nil {
-		t.Fatalf("Enter: %v", err)
-	}
-	err := x.SayHello(ctx, &helloworld.HelloRequest{Name: "x"}, &helloworld.HelloReply{})
-	x.Leave()
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		close(started)
+		done <- x.SayHello(ctx, &helloworld.HelloRequest{Name: "slow"}, &helloworld.HelloReply{})
+	}()
+	<-started
+	time.Sleep(50 * time.Millisecond) // the first call is now inside the guard
 
+	err := x.SayHello(ctx, &helloworld.HelloRequest{Name: "fast"}, &helloworld.HelloReply{})
 	if !errors.Is(err, pgrpc.ErrCallerInUse) {
-		t.Errorf("err = %v, want ErrCallerInUse", err)
+		t.Errorf("second concurrent call = %v, want ErrCallerInUse", err)
+	}
+	if err := <-done; err != nil {
+		t.Errorf("the first call failed: %v", err)
+	}
+}
+
+// TestCallerSendsClientDefaultCallOptions is a regression test with a wire
+// assertion, because the defect it covers was invisible from inside the
+// process: the Client face sent the client-wide header and the Caller face
+// silently sent nothing, from the same *pgrpc.Client and the same option. The
+// Caller's config used to start empty, and only the ergonomic entry points ever
+// read the client's defaults.
+func TestCallerSendsClientDefaultCallOptions(t *testing.T) {
+	x := newCallerWithOptions(t, &greeter{},
+		pgrpc.WithDefaultCallOptions(pgrpc.WithHeaderString("x-tenant", "acme")))
+
+	out := &helloworld.HelloReply{}
+	if err := x.SayHello(testCtx(t), &helloworld.HelloRequest{Name: "world"}, out); err != nil {
+		t.Fatalf("SayHello: %v", err)
+	}
+	if want := "hello world [tenant=acme]"; out.GetMessage() != want {
+		t.Errorf("reply = %q, want %q — the client-wide default never reached the server",
+			out.GetMessage(), want)
+	}
+}
+
+// TestClientAndCallerAgreeOnDefaults states the invariant the regression above
+// broke: two faces over one Client must put the same metadata on the wire.
+func TestClientAndCallerAgreeOnDefaults(t *testing.T) {
+	impl := &greeter{}
+	addr := serve(t, impl)
+	cc := dial(t, addr)
+	c := pgrpc.NewClient(cc, pgrpc.WithCodec(protocodec.Codec{}),
+		pgrpc.WithDefaultCallOptions(pgrpc.WithHeaderString("x-tenant", "acme")))
+
+	viaClient, err := poseidon.NewGreeterClient(c).SayHello(testCtx(t),
+		&helloworld.HelloRequest{Name: "world"})
+	if err != nil {
+		t.Fatalf("client face: %v", err)
+	}
+
+	viaCaller := &helloworld.HelloReply{}
+	if err := poseidon.NewGreeterCaller(c).SayHello(testCtx(t),
+		&helloworld.HelloRequest{Name: "world"}, viaCaller); err != nil {
+		t.Fatalf("caller face: %v", err)
+	}
+
+	if viaClient.GetMessage() != viaCaller.GetMessage() {
+		t.Errorf("the two faces disagree on the wire: client %q, caller %q",
+			viaClient.GetMessage(), viaCaller.GetMessage())
 	}
 }
 

@@ -265,11 +265,11 @@ func (b *baseStream) Close() error {
 // copylocks error, and go vet's full check is enabled here.
 func initStream(b *baseStream, ctx context.Context, cc StreamInvoker, cd Codec,
 	cfg *CallConfig, method string) error {
-	if cfg.Err != nil {
-		return cfg.Err
+	if err := cfg.Err(); err != nil {
+		return err
 	}
 	callCtx, cancel := context.WithCancel(ctx)
-	s, err := cc.NewStream(callCtx, method, cfg.MD, cfg.Pass...)
+	s, err := cc.NewStream(callCtx, method, cfg.Metadata(), cfg.PoseidonOptions()...)
 	if err != nil {
 		cancel()
 		return err

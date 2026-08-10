@@ -111,15 +111,16 @@ scratch and the resolved configuration, which is why it serves **one goroutine
 and one in-flight RPC** — a second concurrent call gets `ErrCallerInUse` rather
 than a corrupted request body.
 
-The `Guard` is embedded rather than written into the generated struct, so a
-generated file imports exactly three packages — `context`, `pgrpc` and its own
-message package — and never `sync/atomic`.
+The `Guard` comes from `pgrpc` rather than being written into the generated
+struct, so a generated file imports exactly three packages — `context`, `pgrpc`
+and its own message package — and never `sync/atomic`.
 
-That embedding is also why a service with a method named `Enter` or `Leave` is
-**refused**: the generated method would shadow the promoted one by Go's depth
-rule, and the body's own `x.Enter()` would call itself. Infinite recursion, no
-compiler diagnostic. It is the only collision here the compiler cannot catch,
-and it has a fixture.
+It is a **named field**, `guard`, not an embedded one. Embedding was the
+original shape and it was wrong in a way a tag would have made permanent:
+`Enter` and `Leave` became exported methods on every generated type, and every
+method ever added to `pgrpc.Guard` would have retroactively forbidden a `.proto`
+method name for every user of this plugin — a coupling written down nowhere. A
+named field costs one selector and reserves nothing.
 
 ### Why the streaming Caller methods exist at all
 

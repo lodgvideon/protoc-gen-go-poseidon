@@ -65,10 +65,14 @@ func (n *nameset) err() error {
 // dangerous ones: *XCaller embeds pgrpc.Guard, so a generated method with
 // either name SHADOWS the promoted one by Go's depth rule — and the generated
 // body's own `x.Enter()` then calls itself. Infinite recursion, no diagnostic.
+// It is deliberately SHORT. It used to also list Enter and Leave, because
+// pgrpc.Guard was embedded in the Caller and its methods were promoted — which
+// meant every method ever added to Guard would retroactively forbid a .proto
+// method name for every user of this plugin, a coupling written down nowhere.
+// The Guard is now a named field, so only the Caller's own methods reserve
+// anything.
 var reservedMethodNames = map[string]string{
 	"Config": "the Caller's own Config method",
-	"Enter":  "pgrpc.Guard.Enter, promoted onto the Caller",
-	"Leave":  "pgrpc.Guard.Leave, promoted onto the Caller",
 }
 
 // checkService rejects the shapes that would produce broken generated code
