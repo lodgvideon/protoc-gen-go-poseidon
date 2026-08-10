@@ -429,3 +429,32 @@ func TestUnexportIsUnreachableFromAValidProto(t *testing.T) {
 		t.Error("the empty name was accepted")
 	}
 }
+
+// TestDirectivesInProtoCommentsAreDefused is the end-to-end half of
+// TestDefuseDirectives: a real descriptor, carrying real hostile comments,
+// through the real generator.
+//
+// The assertion is on the OUTPUT, not on the helper, because the helper is only
+// safe if every comment path actually calls it. A future emitter that forwards
+// a comment some other way would pass the unit test and fail here.
+func TestDirectivesInProtoCommentsAreDefused(t *testing.T) {
+	p, cfg := newPlugin(t, []string{"comments/comments.proto"}, "")
+	_, content := runGen(t, p, cfg)
+
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimLeft(line, " \t")
+		if !strings.HasPrefix(trimmed, "//") || len(trimmed) < 3 {
+			continue
+		}
+		if c := trimmed[2]; c != ' ' && c != '\t' {
+			t.Errorf("a compiler directive survived into the output: %q", line)
+		}
+	}
+
+	// The text itself must still be there; defusing is not censoring.
+	for _, want := range []string{"go:build ignore", "line /evil/injected.go:1", "go:generate rm -rf /"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("the author's text %q was dropped rather than defused", want)
+		}
+	}
+}

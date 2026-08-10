@@ -1,0 +1,33 @@
+// Comments that stop being prose once they reach Go source.
+//
+// protoc strips the leading "//" from a .proto comment and protogen puts one
+// back, so a line written here without a space after the slashes arrives in the
+// generated file as a real compiler directive. The build constraint below is
+// the dangerous one: with interfaces=false the generated doc is emitted exactly
+// once, so the constraint is well-formed, `go build` exits 0, and the entire
+// package is excluded with no message.
+syntax = "proto3";
+
+package comments;
+
+option go_package = "github.com/lodgvideon/protoc-gen-go-poseidon/testdata/comments;comments";
+
+//go:build ignore
+//line /evil/injected.go:1
+// Directives is a service whose leading comment is hostile.
+service Directives {
+  //go:generate rm -rf /
+  //nolint:gosec
+  // Do is a method whose leading comment is hostile too.
+  rpc Do(Req) returns (Resp) {}
+}
+
+// Req is a request.
+message Req {
+  string v = 1;
+}
+
+// Resp is a reply.
+message Resp {
+  string v = 1;
+}

@@ -115,7 +115,7 @@ func protocVersion(p *protogen.Plugin) string {
 // none. Comments.String already carries its "//" prefixes and a trailing
 // newline; g.P adds its own, so the trailing one is trimmed.
 func leading(c protogen.Comments) string {
-	return strings.TrimSuffix(c.String(), "\n")
+	return defuseDirectives(strings.TrimSuffix(c.String(), "\n"))
 }
 
 // doc emits our own doc line followed by the .proto comment, if any.
