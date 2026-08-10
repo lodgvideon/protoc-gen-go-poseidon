@@ -1,0 +1,22 @@
+// A second file rather than a second service in edge.proto: generation stops at
+// the first service it cannot handle, so two rejectable services in one file
+// would leave the later one untested forever.
+syntax = "proto3";
+
+package edge;
+
+import "edge/edge.proto";
+
+option go_package = "github.com/lodgvideon/protoc-gen-go-poseidon/testdata/edge;edge";
+
+// Duped has two methods whose Go names collide.
+//
+// proto's own uniqueness rule is satisfied — "SayHello" and "say_hello" are
+// different method names — but GoCamelCase maps both to SayHello, so the
+// generated interface would declare the same method twice. That is a
+// redeclaration the compiler catches, but it catches it in the USER's build
+// with no hint of which .proto line caused it.
+service Duped {
+  rpc SayHello(Ping) returns (Pong) {}
+  rpc say_hello(Ping) returns (Pong) {}
+}

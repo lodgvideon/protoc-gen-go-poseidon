@@ -347,3 +347,22 @@ func dropVersionLine(s string) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// TestRejectsMethodsWithCollidingGoNames covers proto's own uniqueness rule
+// not being enough: "SayHello" and "say_hello" are different method names, and
+// GoCamelCase maps both to SayHello. The compiler would catch the
+// redeclaration — in the USER's build, with no hint of which .proto line caused
+// it.
+func TestRejectsMethodsWithCollidingGoNames(t *testing.T) {
+	const dupProto = "edge/dupmethod.proto"
+	p, cfg := newPlugin(t, []string{dupProto}, "")
+	err := Run(p, cfg)
+	if err == nil {
+		t.Fatal("two methods generating one Go name were accepted")
+	}
+	for _, want := range []string{"say_hello", "SayHello", "edge.Duped"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not mention %q: %v", want, err)
+		}
+	}
+}
