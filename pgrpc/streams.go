@@ -44,6 +44,31 @@ func (b *baseStream) cacheHeader(ctx context.Context) {
 	}
 }
 
+// recvGatedInto performs one receive under the Close gate.
+//
+// The gate is taken around THIS MESSAGE ONLY, never across a call into user
+// code. An iterator that held it for a whole loop would park any Close() the
+// loop body made behind an iteration that cannot finish until that Close
+// returns — a permanent deadlock which loses the goroutine and the stream slot
+// with it, while baseStream.Close's own doc says a Close from the receiving
+// goroutine is safe.
+//
+// The receive GUARD is not taken here: an iterator claims it once for the whole
+// loop, so that a body which also touches the stream contends with nothing.
+func (b *baseStream) recvGatedInto(ctx context.Context, out any) error {
+	b.gate.RLock()
+	defer b.gate.RUnlock()
+	if err := b.terminal(); err != nil {
+		return err
+	}
+	if err := b.recvOne(ctx, out); err != nil {
+		b.finish(err)
+		return err
+	}
+	b.cacheHeader(ctx)
+	return nil
+}
+
 // sendSide is the state of a stream's send half. It is a separate type so that
 // the client-streaming and bidirectional shapes, which are distinct generic
 // types, share one implementation rather than two copies that drift.
@@ -184,28 +209,11 @@ func NewServerStreamOpts[Resp any](ctx context.Context, c *Client, method string
 // Recv reads the next response into out. It returns io.EOF when the server
 // completed the call successfully, and the call's error otherwise.
 func (s *ServerStream[Resp]) Recv(ctx context.Context, out *Resp) error {
-	s.gate.RLock()
-	defer s.gate.RUnlock()
 	if err := s.enterRecv(); err != nil {
 		return err
 	}
 	defer s.leaveRecv()
-	return s.recvLocked(ctx, out)
-}
-
-// recvLocked is the unguarded form, for callers that already hold the gate and
-// the receive guard. All takes them once for a whole iteration, so the two must
-// never nest.
-func (s *ServerStream[Resp]) recvLocked(ctx context.Context, out *Resp) error {
-	if err := s.terminal(); err != nil {
-		return err
-	}
-	if err := s.recvOne(ctx, out); err != nil {
-		s.finish(err)
-		return err
-	}
-	s.cacheHeader(ctx)
-	return nil
+	return s.recvGatedInto(ctx, out)
 }
 
 // RecvNew allocates a response and reads into it. Recv is the allocation-free
@@ -229,35 +237,36 @@ func (s *ServerStream[Resp]) RecvNew(ctx context.Context) (*Resp, error) {
 // Status afterwards, which stays valid after Close.
 func (s *ServerStream[Resp]) All(ctx context.Context) iter.Seq2[*Resp, error] {
 	return func(yield func(*Resp, error) bool) {
-		// Taken ONCE for the whole iteration rather than per message: a yield
-		// body that also touched the stream would otherwise contend with the
-		// loop itself.
+		// The receive guard is taken ONCE for the whole iteration, so a body
+		// that also touches the stream contends with nothing. The Close gate is
+		// NOT — see recvGatedInto.
 		if err := s.enterRecv(); err != nil {
 			yield(nil, err)
 			return
 		}
-		func() {
-			s.gate.RLock()
-			defer s.gate.RUnlock()
-			defer s.leaveRecv()
-			for {
-				out := new(Resp)
-				err := s.recvLocked(ctx, out)
-				if errors.Is(err, io.EOF) {
-					return
-				}
-				if err != nil {
-					yield(nil, err)
-					return
-				}
-				if !yield(out, nil) {
-					return
-				}
-			}
+		// DEFERRED, not trailing. A trailing Close runs on neither a panic in
+		// the loop body nor a runtime.Goexit, and three documents promise this
+		// iterator closes on a panic. Without it, four panicking iterations
+		// wedge a connection whose peer allows four concurrent streams.
+		defer func() {
+			s.leaveRecv()
+			_ = s.Close()
 		}()
-		// After the gate and the guard are released, or Close would park on
-		// this goroutine's own read lock.
-		_ = s.Close()
+
+		for {
+			out := new(Resp)
+			err := s.recvGatedInto(ctx, out)
+			if errors.Is(err, io.EOF) {
+				return
+			}
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if !yield(out, nil) {
+				return
+			}
+		}
 	}
 }
 
@@ -426,25 +435,11 @@ func (s *BidiStream[Req, Resp]) CloseSend(ctx context.Context) error {
 
 // Recv reads the next response into out, returning io.EOF at a successful end.
 func (s *BidiStream[Req, Resp]) Recv(ctx context.Context, out *Resp) error {
-	s.gate.RLock()
-	defer s.gate.RUnlock()
 	if err := s.enterRecv(); err != nil {
 		return err
 	}
 	defer s.leaveRecv()
-	return s.recvLocked(ctx, out)
-}
-
-func (s *BidiStream[Req, Resp]) recvLocked(ctx context.Context, out *Resp) error {
-	if err := s.terminal(); err != nil {
-		return err
-	}
-	if err := s.recvOne(ctx, out); err != nil {
-		s.finish(err)
-		return err
-	}
-	s.cacheHeader(ctx)
-	return nil
+	return s.recvGatedInto(ctx, out)
 }
 
 // All iterates the responses. Unlike the server-streaming form it does NOT
@@ -458,12 +453,10 @@ func (s *BidiStream[Req, Resp]) All(ctx context.Context) iter.Seq2[*Resp, error]
 			yield(nil, err)
 			return
 		}
-		s.gate.RLock()
-		defer s.gate.RUnlock()
 		defer s.leaveRecv()
 		for {
 			out := new(Resp)
-			err := s.recvLocked(ctx, out)
+			err := s.recvGatedInto(ctx, out)
 			if errors.Is(err, io.EOF) {
 				return
 			}

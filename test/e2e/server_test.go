@@ -173,12 +173,18 @@ var greeterDesc = grpcgo.ServiceDesc{
 
 // serve starts a grpc-go server on a loopback port and returns its address.
 func serve(t testing.TB, impl *greeter) string {
+	return serveWith(t, impl)
+}
+
+// serveWith is serve with server options, for a test that needs to bound
+// concurrency so a leaked stream shows up as a wedge rather than as nothing.
+func serveWith(t testing.TB, impl *greeter, opts ...grpcgo.ServerOption) string {
 	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	s := grpcgo.NewServer()
+	s := grpcgo.NewServer(opts...)
 	s.RegisterService(&greeterDesc, impl)
 
 	done := make(chan struct{})
