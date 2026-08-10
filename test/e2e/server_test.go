@@ -166,7 +166,7 @@ var greeterDesc = grpcgo.ServiceDesc{
 }
 
 // serve starts a grpc-go server on a loopback port and returns its address.
-func serve(t *testing.T, impl *greeter) string {
+func serve(t testing.TB, impl *greeter) string {
 	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -192,7 +192,7 @@ func serve(t *testing.T, impl *greeter) string {
 // PlaintextDialer plus Scheme "http" is prior-knowledge h2c: the preface goes
 // out with no TLS and no upgrade dance, which is what grpc.NewServer with no
 // credentials expects.
-func dial(t *testing.T, addr string) *poseidongrpc.ClientConn {
+func dial(t testing.TB, addr string) *poseidongrpc.ClientConn {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -210,20 +210,20 @@ func dial(t *testing.T, addr string) *poseidongrpc.ClientConn {
 }
 
 // newClient returns the generated ergonomic face over a fresh connection.
-func newClient(t *testing.T, impl *greeter) poseidon.GreeterClient {
+func newClient(t testing.TB, impl *greeter) poseidon.GreeterClient {
 	t.Helper()
 	return poseidon.NewGreeterClient(pgrpc.NewClient(
 		dial(t, serve(t, impl)), pgrpc.WithCodec(protocodec.Codec{})))
 }
 
 // newCaller returns the generated buffer-reusing face over a fresh connection.
-func newCaller(t *testing.T, impl *greeter) *poseidon.GreeterCaller {
+func newCaller(t testing.TB, impl *greeter) *poseidon.GreeterCaller {
 	t.Helper()
 	return poseidon.NewGreeterCallerOn(dial(t, serve(t, impl)))
 }
 
 // testCtx bounds every test, so a hang is a failure rather than a stuck suite.
-func testCtx(t *testing.T) context.Context {
+func testCtx(t testing.TB) context.Context {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
@@ -235,4 +235,10 @@ func testCtx(t *testing.T) context.Context {
 func statusOf(err error) (codes.Code, string) {
 	st, _ := status.FromError(err)
 	return st.Code(), st.Message()
+}
+
+// newClientOn wraps an already-dialled connection, so a benchmark can pay for
+// the connection once outside its measured loop.
+func newClientOn(cc *poseidongrpc.ClientConn) poseidon.GreeterClient {
+	return poseidon.NewGreeterClientOn(cc)
 }

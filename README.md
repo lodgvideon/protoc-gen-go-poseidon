@@ -191,8 +191,9 @@ buildable at all.
 ## What is not done
 
 - **No release tag.** The generated API may still change.
-- **No streaming allocation figures.** The unary path is measured (see below);
-  per-message send and receive costs are not.
+- **The client's share of a streaming call is not separable.** A stream needs a
+  real server in-process, so only the difference between paired arms is
+  attributable; see [docs/ALLOCATIONS.md](docs/ALLOCATIONS.md).
 - **No BSR remote plugin.** Local binary only.
 - **Flat mode** (`separate_package=false`) is deferred; it needs a mechanical
   gate over everything the two upstream generators can emit.
