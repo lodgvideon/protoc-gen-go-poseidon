@@ -103,10 +103,14 @@ func TestMetadataBinRoundTrips(t *testing.T) {
 	}
 }
 
-// TestMetadataBinValuesSurviveArenaGrowth is the bug the span indirection
-// exists to prevent. Appending to the arena reallocates it, so a value bound at
-// Set time would end up pointing into the abandoned array — and the header
-// would ship whatever the allocator left there.
+// TestMetadataBinValuesSurviveArenaGrowth checks the user-visible half: values
+// still read back correctly after the arena has reallocated several times.
+//
+// It does NOT discriminate the span indirection — binding a value at set time
+// also reads back correctly, because the abandoned array stays alive and
+// unmodified. What the spans buy is that no entry pins a stale arena, and that
+// is only observable from inside the package; see
+// TestBinValuesAliasTheCurrentArena in metadata_internal_test.go.
 func TestMetadataBinValuesSurviveArenaGrowth(t *testing.T) {
 	var m pgrpc.Metadata
 	first := []byte{1, 2, 3}

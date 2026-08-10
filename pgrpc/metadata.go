@@ -223,9 +223,13 @@ func (m *Metadata) binary(key string, value []byte, replace bool) error {
 	}
 	off := len(m.bin)
 	m.bin = binEncoding.AppendEncode(m.bin, value)
-	// The Value is filled in by Fields, not here: appending to the arena can
-	// REALLOCATE it, which would leave every previously handed-out value
-	// pointing into the dead array. The span is the durable record.
+	// The Value is filled in by Fields, not here. Appending to the arena can
+	// REALLOCATE it, and a value bound now would keep pointing at the old
+	// array — which stays perfectly readable, Go having no dangling pointers,
+	// so this is NOT about corruption. It is about memory: every entry bound to
+	// an abandoned arena PINS that arena, so a build that grows the arena k
+	// times holds k generations alive and the reuse this whole type exists for
+	// stops happening. The span is the durable record.
 	m.put(name, nil, binSpan{off: off, n: len(m.bin) - off}, IndexIncremental, replace)
 	return nil
 }
@@ -234,9 +238,11 @@ func (m *Metadata) binary(key string, value []byte, replace bool) error {
 //
 // It aliases this builder and is invalidated by the next mutation or Reset.
 //
-// Binary values are bound to the arena here rather than when they were set,
-// because appending to the arena can reallocate it — binding earlier would hand
-// out slices into an array that a later SetBin abandoned.
+// Binary values are bound to the arena here rather than when they were set, so
+// that every value points into the CURRENT arena. Binding at set time would
+// still read back correctly — the abandoned array survives as long as anything
+// references it — but each entry would pin the generation it was bound to, and
+// the arena would stop being reused. See the comment in binary.
 func (m *Metadata) Fields() []conn.HeaderField {
 	for i := range m.spans {
 		if s := m.spans[i]; s.n >= 0 {
