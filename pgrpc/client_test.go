@@ -11,6 +11,11 @@ import (
 	"github.com/lodgvideon/protoc-gen-go-poseidon/pgrpc"
 )
 
+// errPathGrowth is how much the fakes grow a caller's buffer before failing.
+// Large enough that a buffer starting small must reallocate, so a test can tell
+// "the growth was kept" from "nothing happened".
+const errPathGrowth = 4096
+
 // fakeInvoker is the substitutability claim made concrete: the unary half can
 // be faked with nothing but byte slices. The streaming half cannot, because
 // *grpc.Stream has no exported constructor — so it returns an error, which is
@@ -39,9 +44,13 @@ func (f *fakeInvoker) InvokeInto(_ context.Context, method string, req, dst []by
 	f.req = append(f.req[:0], req...)
 	if f.err != nil {
 		// Mirror poseidon: dst[:0] rather than nil, so a looping caller keeps
-		// its buffer. A fake that returned nil here would hide a regression in
-		// the code that relies on that property.
-		return dst[:0], f.err
+		// its buffer. Crucially, GROW it first — poseidon can append a partial
+		// response and only then fail (a failed drain after a message landed),
+		// and returning dst[:0] is how it hands the grown array back. A fake
+		// that returned the caller's slice untouched would make "keep the
+		// buffer on the error path" untestable, because doing nothing at all
+		// would pass.
+		return append(dst, make([]byte, errPathGrowth)...)[:0], f.err
 	}
 	return append(dst, f.resp...), nil
 }

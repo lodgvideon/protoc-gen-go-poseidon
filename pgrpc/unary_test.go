@@ -24,7 +24,11 @@ type errCodec struct {
 
 func (c errCodec) MarshalAppend(dst []byte, m any) ([]byte, error) {
 	if c.marshalErr != nil {
-		return dst, c.marshalErr
+		// Grow before failing, the way a codec that got partway through a
+		// large message would. MarshalAppend's contract leaves the returned
+		// slice unspecified on error, but the ARRAY is still the caller's, and
+		// a looping caller must not lose that growth.
+		return append(dst, make([]byte, errPathGrowth)...), c.marshalErr
 	}
 	return protocodec.Codec{}.MarshalAppend(dst, m)
 }
@@ -209,14 +213,19 @@ func TestUnaryReusesCallerBuffers(t *testing.T) {
 }
 
 // TestUnaryKeepsCallerBuffersOnFailure covers the paths a looping caller hits
-// under load: an error must not cost it the arrays it is reusing.
+// under load: a failure must not cost it the buffer growth it already paid for.
+//
+// The assertion is on CAPACITY, not on the array's identity. Both the transport
+// and the codec can grow the buffer and only then fail — poseidon's InvokeInto
+// hands the grown array back as dst[:0] for exactly this reason — so the growth
+// arrives in a REALLOCATED array, and a test comparing pointers would pass
+// whether or not the result was stored. Capacity is what discriminates.
 func TestUnaryKeepsCallerBuffersOnFailure(t *testing.T) {
 	f := &fakeInvoker{resp: wireOf(t, wrapperspb.String("pong"))}
 	c := pgrpc.NewClient(f, pgrpc.WithCodec(protocodec.Codec{}))
 
-	reqBuf := make([]byte, 0, 256)
-	respBuf := make([]byte, 0, 256)
-	reqArr, respArr := unsafe.SliceData(reqBuf), unsafe.SliceData(respBuf)
+	reqBuf := make([]byte, 0, 8)
+	respBuf := make([]byte, 0, 8)
 
 	f.err = errors.New("transport down")
 	err := pgrpc.Unary(context.Background(), c, &pgrpc.CallConfig{}, testMethod,
@@ -224,11 +233,12 @@ func TestUnaryKeepsCallerBuffersOnFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the transport error")
 	}
-	if unsafe.SliceData(reqBuf) != reqArr {
-		t.Error("the request buffer was lost on a transport error")
+	if cap(respBuf) < errPathGrowth {
+		t.Errorf("response buffer cap = %d after a transport error, want >= %d — the growth was discarded",
+			cap(respBuf), errPathGrowth)
 	}
-	if unsafe.SliceData(respBuf) != respArr {
-		t.Error("the response buffer was lost on a transport error")
+	if len(respBuf) != 0 {
+		t.Errorf("response buffer len = %d after a failure, want 0", len(respBuf))
 	}
 
 	f.err = nil
@@ -237,8 +247,12 @@ func TestUnaryKeepsCallerBuffersOnFailure(t *testing.T) {
 		wrapperspb.String("ping"), &wrapperspb.StringValue{}, &reqBuf, &respBuf); err == nil {
 		t.Fatal("expected the marshal error")
 	}
-	if unsafe.SliceData(reqBuf) != reqArr {
-		t.Error("the request buffer was lost on a marshal error")
+	if cap(reqBuf) < errPathGrowth {
+		t.Errorf("request buffer cap = %d after a marshal error, want >= %d — the growth was discarded",
+			cap(reqBuf), errPathGrowth)
+	}
+	if len(reqBuf) != 0 {
+		t.Errorf("request buffer len = %d after a marshal failure, want 0", len(reqBuf))
 	}
 }
 
