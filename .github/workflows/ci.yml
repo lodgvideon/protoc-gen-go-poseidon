@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: ['.', 'pgrpc', 'testdata', 'test/e2e']
+        module: ['.', 'pgrpc', 'testdata', 'test/e2e', 'examples/loadgen']
     defaults:
       run:
         working-directory: ${{ matrix.module }}
@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: ['.', 'pgrpc', 'testdata', 'test/e2e']
+        module: ['.', 'pgrpc', 'testdata', 'test/e2e', 'examples/loadgen']
     defaults:
       run:
         working-directory: ${{ matrix.module }}
@@ -89,3 +89,30 @@ jobs:
           go mod tidy
       - run: go build ./...
       - run: go test -race -count=1 ./...
+
+  # The example is the only module shaped like a CONSUMER: it imports the
+  # generated client and nothing else from this repo. Its dependency graph is
+  # therefore the claim "a user links pgrpc, not the plugin, and never grpc-go"
+  # — and a claim in a README is worth nothing without a check.
+  consumer-deps:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: examples/loadgen
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: examples/loadgen/go.sum
+      - name: A user's binary must not link the compiler or grpc-go
+        run: |
+          go list -deps ./... > deps.txt
+          for p in google.golang.org/protobuf/compiler/protogen                    google.golang.org/protobuf/types/pluginpb                    google.golang.org/grpc; do
+            if grep -qx "$p" deps.txt || grep -q "^$p/" deps.txt; then
+              echo "::error::$p is linked into the example binary"
+              exit 1
+            fi
+          done
+          echo "clean: no compiler, no pluginpb, no grpc-go"
