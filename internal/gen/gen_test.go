@@ -5,9 +5,11 @@ import "testing"
 // TestDefuseDirectives covers the shapes a .proto author can put in a comment
 // that stop being prose once they reach Go source.
 //
-// The silent one is the reason this is not cosmetic: with interfaces=false the
-// doc is emitted exactly once, so a //go:build constraint is well-formed, the
-// build exits 0, and the entire generated package is excluded with no message.
+// //line is the one that earns the filter. Verified by compiling one: a
+// generated file carrying "//line /evil/injected.go:1" makes the compiler
+// report every later error in it against a path that does not exist. A
+// //go:build in the same position is a hard "misplaced compiler directive"
+// instead — loud, but still a broken build we handed the user.
 func TestDefuseDirectives(t *testing.T) {
 	for _, tc := range []struct{ name, in, want string }{
 		{"build constraint", "//go:build ignore", "// go:build ignore"},

@@ -2,10 +2,12 @@
 //
 // protoc strips the leading "//" from a .proto comment and protogen puts one
 // back, so a line written here without a space after the slashes arrives in the
-// generated file as a real compiler directive. The build constraint below is
-// the dangerous one: with interfaces=false the generated doc is emitted exactly
-// once, so the constraint is well-formed, `go build` exits 0, and the entire
-// package is excluded with no message.
+// generated file as a real compiler directive.
+//
+// The //line below is the dangerous one. A generated doc comment always lands
+// after the package clause, where a build constraint is merely a hard
+// "misplaced compiler directive" — but //line is honoured anywhere, so every
+// later compiler error in the file is reported against the path chosen here.
 syntax = "proto3";
 
 package comments;

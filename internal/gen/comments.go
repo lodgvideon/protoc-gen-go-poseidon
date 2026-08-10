@@ -11,15 +11,31 @@ import "strings"
 //	//go:build ignore
 //	service Greeter { ... }
 //
-// lands in the generated file as a real build constraint. Under the default
-// options the doc is emitted more than once and the build fails with "multiple
-// //go:build comments"; with interfaces=false it is emitted exactly once, and
-// then the failure goes SILENT — go build exits 0 and the whole generated
-// package is excluded with no message at all.
+// lands in the generated file as a directive.
 //
-// A //line directive is worse than either. It is honoured, so every later
-// compiler diagnostic in the file is reported against a path the .proto author
-// chose, and a malformed one aborts the generation run outright.
+// MEASURED, because the first account of this was wrong and I repeated it. A
+// generated doc comment is always AFTER the package clause, and that position
+// decides what each directive does:
+//
+//	//go:build ignore   "misplaced compiler directive" — a hard build failure.
+//	                    The silent whole-package exclusion people expect needs
+//	                    the constraint BEFORE the package clause, which nothing
+//	                    a .proto author writes can reach.
+//	// +build ignore    inert here. It is a constraint only before the package
+//	                    clause, so it is not defused for safety — it is defused
+//	                    because it has a space and never matched anyway.
+//	//line /evil/x.go:1 HONOURED. This is the one that earns the filter.
+//
+// The //line case, verified by compiling one:
+//
+//	/evil/injected.go:4: cannot use "not an int" ... as int value
+//
+// against a file that does not exist, on a path the .proto author chose. Every
+// later diagnostic in the file is reported that way, and a malformed //line
+// aborts the generation run outright.
+//
+// So the build constraint is a broken build we caused, and //line is a lie the
+// compiler repeats. Both are worth one space.
 //
 // The fix is one space. The author's text survives and is prose again.
 //
