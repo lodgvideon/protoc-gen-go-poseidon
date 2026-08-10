@@ -120,29 +120,47 @@ func checkText(key string) error {
 	return nil
 }
 
-// indexOf returns the position of the first entry named name, or -1.
-func (m *Metadata) indexOf(name []byte) int {
-	for i := range m.fields {
-		// The interned name is one shared slice per key, so comparing the data
-		// pointers would work — but only until someone hand-builds a field.
-		// String comparison of byte slices does not allocate.
-		if string(m.fields[i].Name) == string(name) {
-			return i
-		}
-	}
-	return -1
-}
-
-// put installs an entry, replacing the first one with the same name when
+// put installs an entry, replacing EVERY existing one with the same name when
 // replace is set and appending otherwise.
+//
+// Every one, not the first. gRPC metadata permits repeated keys and AddText
+// builds them, so a Set that stopped at the first match left the rest on the
+// wire — and in the case that matters most, that is a rotated credential
+// shipping beside the stale one it was meant to replace.
+//
+// SetSensitive made it worse rather than better: it de-indexed the entry it
+// replaced and left the survivor at IndexIncremental, so the STALE secret was
+// the one that entered the connection's shared HPACK dynamic table and got
+// re-sent as a one-byte reference on every later call.
+//
+// grpc-go's metadata.MD.Set is replace-all for the same reason.
 func (m *Metadata) put(name, value []byte, span binSpan, idx IndexingMode, replace bool) {
 	f := conn.HeaderField{Name: name, Value: value, Indexing: idx}
 	if replace {
-		if i := m.indexOf(name); i >= 0 {
-			// The previous binary value's arena bytes are orphaned until Reset.
-			// Compacting them would invalidate every span after it for no gain:
-			// the arena is bounded by one build's high-water mark either way.
-			m.fields[i], m.spans[i] = f, span
+		// A replaced binary value's arena bytes are orphaned until Reset.
+		// Compacting them would invalidate every span after it for no gain: the
+		// arena is bounded by one build's high-water mark either way.
+		w, placed := 0, false
+		for i := range m.fields {
+			if string(m.fields[i].Name) == string(name) {
+				if placed {
+					continue // a duplicate of the key being set; drop it
+				}
+				m.fields[w], m.spans[w] = f, span
+				w, placed = w+1, true
+				continue
+			}
+			m.fields[w], m.spans[w] = m.fields[i], m.spans[i]
+			w++
+		}
+		if placed {
+			// Clear the tail rather than only truncating. A dropped duplicate is
+			// exactly the credential being rotated away, and this builder retains
+			// its arrays across Reset — leaving it reachable past len is the very
+			// thing Reset takes care to avoid.
+			clear(m.fields[w:])
+			clear(m.spans[w:])
+			m.fields, m.spans = m.fields[:w], m.spans[:w]
 			return
 		}
 	}

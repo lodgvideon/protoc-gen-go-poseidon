@@ -293,3 +293,85 @@ func TestMetadataFeedsWithMetadata(t *testing.T) {
 		t.Errorf("CallConfig.MD = %v", cfg.Metadata())
 	}
 }
+
+// TestSetReplacesEveryDuplicate is the rotation case, and it is the reason Set
+// cannot stop at the first match.
+//
+// gRPC metadata permits repeated keys and AddText builds them. A Set that
+// replaced only the first left the stale value on the wire beside the new one.
+func TestSetReplacesEveryDuplicate(t *testing.T) {
+	var m pgrpc.Metadata
+	for _, v := range []string{"a", "b", "c"} {
+		if err := m.AddText("x-token", []byte(v)); err != nil {
+			t.Fatalf("AddText(%q): %v", v, err)
+		}
+	}
+	if err := m.SetText("x-token", []byte("fresh")); err != nil {
+		t.Fatalf("SetText: %v", err)
+	}
+
+	var got []string
+	for _, f := range m.Fields() {
+		if string(f.Name) == "x-token" {
+			got = append(got, string(f.Value))
+		}
+	}
+	if len(got) != 1 || got[0] != "fresh" {
+		t.Errorf("x-token = %v, want exactly [fresh] — a stale value survived the rotation", got)
+	}
+}
+
+// TestSetSensitiveDeIndexesEveryDuplicate is the sharper half. Replacing only
+// the first entry de-indexed the one being retired and left the SURVIVOR
+// indexable, so the stale secret was the one that entered the connection's
+// shared HPACK dynamic table.
+func TestSetSensitiveDeIndexesEveryDuplicate(t *testing.T) {
+	var m pgrpc.Metadata
+	for _, v := range []string{"old-1", "old-2"} {
+		if err := m.AddText("authorization", []byte("Bearer "+v)); err != nil {
+			t.Fatalf("AddText: %v", err)
+		}
+	}
+	if err := m.SetSensitive("authorization", []byte("Bearer fresh")); err != nil {
+		t.Fatalf("SetSensitive: %v", err)
+	}
+
+	n := 0
+	for _, f := range m.Fields() {
+		if string(f.Name) != "authorization" {
+			continue
+		}
+		n++
+		if f.Indexing != pgrpc.IndexNever {
+			t.Errorf("a credential is still indexable: %q mode=%v", f.Value, f.Indexing)
+		}
+		if string(f.Value) != "Bearer fresh" {
+			t.Errorf("a stale credential survived: %q", f.Value)
+		}
+	}
+	if n != 1 {
+		t.Errorf("got %d authorization entries, want 1", n)
+	}
+}
+
+// TestSetDoesNotLeaveDroppedDuplicatesReachable covers the retained arrays.
+// The builder keeps its slices across Reset, so a duplicate dropped by a Set is
+// a credential sitting past len in memory that outlives the RPC.
+func TestSetDoesNotLeaveDroppedDuplicatesReachable(t *testing.T) {
+	var m pgrpc.Metadata
+	for _, v := range []string{"secret-1", "secret-2", "secret-3"} {
+		if err := m.AddText("authorization", []byte(v)); err != nil {
+			t.Fatalf("AddText: %v", err)
+		}
+	}
+	if err := m.SetSensitive("authorization", []byte("fresh")); err != nil {
+		t.Fatalf("SetSensitive: %v", err)
+	}
+
+	full := m.Fields()[:cap(m.Fields())]
+	for i := len(m.Fields()); i < len(full); i++ {
+		if full[i].Name != nil || full[i].Value != nil {
+			t.Errorf("slot %d past the end still holds %q", i, full[i].Value)
+		}
+	}
+}
