@@ -96,8 +96,24 @@ func TestResetDoesNotClearAReinstalledSlice(t *testing.T) {
 //
 // go vet is silent here: CallConfig holds no lock, so copylocks never fires.
 func TestValueCopyDoesNotAlias(t *testing.T) {
+	// THREE headers, not one, and that is the whole test.
+	//
+	// A single Apply leaves len=1 cap=1, so every later append reallocates on
+	// its own and the assertion below cannot fail — the first version of this
+	// test was exactly that, and mutation-checking caught it: restoring the
+	// pre-fix bool latch left it green. Three appends grow the array to
+	// len=3 cap=4, so an unguarded append has a spare slot to land in and the
+	// aliasing becomes observable.
 	var base pgrpc.CallConfig
-	base.Apply(pgrpc.WithHeaderString("x-run", "run-1"))
+	base.Apply(
+		pgrpc.WithHeaderString("x-run", "run-1"),
+		pgrpc.WithHeaderString("x-build", "abc"),
+		pgrpc.WithHeaderString("x-region", "eu"),
+	)
+	if cap(base.Metadata()) <= len(base.Metadata()) {
+		t.Fatalf("the base has no spare capacity (len=%d cap=%d); this test cannot detect aliasing",
+			len(base.Metadata()), cap(base.Metadata()))
+	}
 
 	vu1, vu2 := base, base
 	vu1.Apply(pgrpc.WithHeaderString("authorization", "Bearer VU1"))
@@ -114,7 +130,7 @@ func TestValueCopyDoesNotAlias(t *testing.T) {
 	if v := string(got2[len(got2)-1].Value); v != "Bearer VU2" {
 		t.Errorf("VU2 carries %q", v)
 	}
-	if len(base.Metadata()) != 1 {
+	if len(base.Metadata()) != 3 {
 		t.Errorf("the base grew to %d entries: %v", len(base.Metadata()), names(base.Metadata()))
 	}
 }
@@ -265,20 +281,31 @@ func TestResetClearsPassAndCodecAndErr(t *testing.T) {
 // of the metadata rule. It has the same shape and the same consequence: two
 // copies appending into one array give one call another's option.
 func TestPoseidonOptionsDoNotAliasAcrossCopies(t *testing.T) {
+	// Three, for the reason TestValueCopyDoesNotAlias gives: one option leaves
+	// no spare capacity, so the copies reallocate anyway and the test passes on
+	// a broken build.
 	var base pgrpc.CallConfig
-	base.Apply(pgrpc.MaxRecvMessageSize(1 << 20))
+	base.Apply(
+		pgrpc.MaxRecvMessageSize(1<<20),
+		pgrpc.MaxRecvMessageSize(1<<20),
+		pgrpc.MaxRecvMessageSize(1<<20),
+	)
+	if cap(base.PoseidonOptions()) <= len(base.PoseidonOptions()) {
+		t.Fatalf("the base has no spare capacity (len=%d cap=%d); this test cannot detect aliasing",
+			len(base.PoseidonOptions()), cap(base.PoseidonOptions()))
+	}
 
 	a, b := base, base
 	a.Apply(pgrpc.MaxRecvMessageSize(1 << 21))
 	b.Apply(pgrpc.MaxRecvMessageSize(1 << 22))
 
-	if len(a.PoseidonOptions()) != 2 || len(b.PoseidonOptions()) != 2 {
-		t.Fatalf("a=%d b=%d, want 2 each", len(a.PoseidonOptions()), len(b.PoseidonOptions()))
+	if len(a.PoseidonOptions()) != 4 || len(b.PoseidonOptions()) != 4 {
+		t.Fatalf("a=%d b=%d, want 4 each", len(a.PoseidonOptions()), len(b.PoseidonOptions()))
 	}
-	if &a.PoseidonOptions()[1] == &b.PoseidonOptions()[1] {
+	if &a.PoseidonOptions()[3] == &b.PoseidonOptions()[3] {
 		t.Error("two copies share one option array")
 	}
-	if len(base.PoseidonOptions()) != 1 {
+	if len(base.PoseidonOptions()) != 3 {
 		t.Errorf("the base grew to %d options", len(base.PoseidonOptions()))
 	}
 }
