@@ -1,0 +1,32 @@
+# Regenerates the fixture packages this module compiles, which is the proof
+# that the generator's output actually builds.
+#
+#   cd testdata && buf generate
+#
+# Both plugins are resolved as LOCAL binaries on PATH, so this needs
+# `go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11` and a
+# `go build -o $(go env GOPATH)/bin/ ./cmd/protoc-gen-go-poseidon` first. On
+# Windows `local:` searches the Windows PATH, not Git-Bash's.
+#
+# The output lands beside this file rather than in a gen/ directory, because the
+# fixture's go_package already names .../testdata/helloworld and the module root
+# is testdata — so paths=source_relative puts every file exactly where its
+# import path says it is, with no M-flag rewriting.
+version: v2
+managed:
+  enabled: false
+# proto/edge holds schemas the generator must REFUSE, so running the plugin over
+# them is SUPPOSED to fail — `buf generate` without this filter reports the
+# edge rejection and produces nothing at all. They stay inside the buf module so
+# that `buf build` keeps them in the descriptor set the golden tests read.
+inputs:
+  - directory: proto
+    paths:
+      - proto/helloworld
+plugins:
+  - local: protoc-gen-go
+    out: .
+    opt: paths=source_relative
+  - local: protoc-gen-go-poseidon
+    out: .
+    opt: paths=source_relative

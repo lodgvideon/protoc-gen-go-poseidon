@@ -4,13 +4,12 @@ on:
     branches: [main]
   pull_request:
 
-# Two modules live here and neither `./...` reaches the other: the plugin
-# binary at the root, and the pgrpc runtime that generated code imports. Every
-# job is a matrix over both, or one of them rots unnoticed — which is what
-# happened to the contrib/prometheus module in the poseidon repo until it got
-# its own job.
-env:
-  MODULES: '[".", "pgrpc"]'
+# Three modules live here and no `./...` reaches across them: the plugin binary
+# at the root, the pgrpc runtime that generated code imports, and testdata,
+# which exists only to COMPILE the generator's output — Go's toolchain skips any
+# directory named testdata, so its files are unreachable from the root and a
+# module rooted there is the way to build them at all. Every job is a matrix
+# over all three, or one of them rots unnoticed.
 
 jobs:
   lint:
@@ -18,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: ['.', 'pgrpc']
+        module: ['.', 'pgrpc', 'testdata']
     defaults:
       run:
         working-directory: ${{ matrix.module }}
@@ -40,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: ['.', 'pgrpc']
+        module: ['.', 'pgrpc', 'testdata']
     defaults:
       run:
         working-directory: ${{ matrix.module }}

@@ -1,0 +1,30 @@
+// Package edge holds the schemas the generator must REFUSE, one per file-level
+// service, so that each failure can be asserted on its own.
+//
+// The Guarded service is the sharpest of them. *XCaller embeds pgrpc.Guard, so
+// a generated method named Enter or Leave shadows the promoted one by Go's
+// depth rule — and the generated body's own `x.Enter()` then calls itself.
+// Infinite recursion, with no compiler diagnostic and no test failure until
+// something overflows its stack under load. It is the only collision in the
+// design that the compiler does not catch, which is why there is a fixture for
+// it rather than a comment.
+syntax = "proto3";
+
+package edge;
+
+option go_package = "github.com/lodgvideon/protoc-gen-go-poseidon/testdata/edge;edge";
+
+// Guarded has a method whose Go name collides with pgrpc.Guard.Enter.
+service Guarded {
+  rpc Enter(Ping) returns (Pong) {}
+}
+
+// Ping is a request.
+message Ping {
+  string v = 1;
+}
+
+// Pong is a reply.
+message Pong {
+  string v = 1;
+}

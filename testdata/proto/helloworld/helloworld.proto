@@ -1,0 +1,52 @@
+// Package helloworld is the generator's golden fixture. It is deliberately the
+// smallest file that still reaches every branch of the generator: one service
+// with one method of each of the four gRPC call shapes.
+//
+// Everything in here is load-bearing.
+//
+//   - The comments are part of the fixture. The generator forwards leading
+//     comments onto the generated interface methods, so a descriptor set built
+//     WITHOUT source info would silently drop them and the golden files would
+//     stop covering that path. Build with source info (buf includes it unless
+//     --exclude-source-info is passed).
+//   - go_package carries an explicit ";helloworld" package name so the golden
+//     output does not depend on protogen's derive-from-path fallback.
+//   - HelloRequest is reused as the request of all four methods, and
+//     HelloReply as the response of all four, so that any difference between
+//     the four generated shapes is a difference the GENERATOR made, not one
+//     the schema made.
+syntax = "proto3";
+
+package helloworld;
+
+option go_package = "github.com/lodgvideon/protoc-gen-go-poseidon/testdata/helloworld;helloworld";
+
+// Greeter is the canonical four-shape service.
+service Greeter {
+  // SayHello is the unary shape: one request, one reply.
+  rpc SayHello(HelloRequest) returns (HelloReply) {}
+
+  // LotsOfReplies is the server-streaming shape: one request, a stream of
+  // replies.
+  rpc LotsOfReplies(HelloRequest) returns (stream HelloReply) {}
+
+  // LotsOfGreetings is the client-streaming shape: a stream of requests, one
+  // reply.
+  rpc LotsOfGreetings(stream HelloRequest) returns (HelloReply) {}
+
+  // BidiHello is the bidirectional shape: a stream each way, independently
+  // driven.
+  rpc BidiHello(stream HelloRequest) returns (stream HelloReply) {}
+}
+
+// HelloRequest is the request for every method on Greeter.
+message HelloRequest {
+  // name is who to greet.
+  string name = 1;
+}
+
+// HelloReply is the reply from every method on Greeter.
+message HelloReply {
+  // message is the greeting.
+  string message = 1;
+}
