@@ -9,7 +9,13 @@ on:
 # which exists only to COMPILE the generator's output — Go's toolchain skips any
 # directory named testdata, so its files are unreachable from the root and a
 # module rooted there is the way to build them at all. Every job is a matrix
-# over all three, or one of them rots unnoticed.
+# over all of them, or one rots unnoticed.
+#
+# test/e2e is separate from testdata on purpose: testdata proves the generated
+# output compiles against pgrpc and protobuf and NOTHING ELSE, which a grpc-go
+# dependency there would quietly destroy. In e2e grpc-go IS the point — it is
+# the other implementation, and agreeing with it is the only evidence the wire
+# behaviour is right.
 
 jobs:
   lint:
@@ -17,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: ['.', 'pgrpc', 'testdata']
+        module: ['.', 'pgrpc', 'testdata', 'test/e2e']
     defaults:
       run:
         working-directory: ${{ matrix.module }}
@@ -39,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: ['.', 'pgrpc', 'testdata']
+        module: ['.', 'pgrpc', 'testdata', 'test/e2e']
     defaults:
       run:
         working-directory: ${{ matrix.module }}
