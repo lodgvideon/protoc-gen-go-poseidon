@@ -86,10 +86,24 @@ func Unary(ctx context.Context, c *Client, cfg *CallConfig,
 // UnaryOpts is the ergonomic unary entry point. It resolves opts against the
 // Client's defaults and delegates to Unary with no caller-supplied buffers.
 //
-// It costs one CallConfig allocation per RPC even with zero options, because
-// &cfg escapes through the interface call in Apply. That is precisely the
-// allocation the resolved-config path above exists to avoid, and it is a named
-// line item in the allocation budget rather than a footnote.
+// MEASURED COST, with a codec that allocates nothing so the figure is this
+// package's own: three allocations and 112 bytes per RPC, with zero options.
+// They decompose as
+//
+//	1 alloc,  96 B  the CallConfig, which escapes through the interface call
+//	                in Apply — the compiler says so directly:
+//	                "unary.go: moved to heap: cfg"
+//	2 allocs, 16 B  the request and response buffers, allocated fresh because
+//	                nil scratch means exactly that
+//
+// Unary with caller-owned buffers and a resolved config is 0 allocs and 0 B on
+// the same codec, which is what the generated Caller face uses and why it
+// exists. The real protobuf codec adds one more allocation, for the string the
+// response unmarshals into.
+//
+// See BenchmarkUnaryOpts_Nop, BenchmarkUnaryResolved_Nop and
+// BenchmarkUnaryResolved_NilScratch_Nop, which are what these numbers are read
+// from rather than reasoned about.
 func UnaryOpts(ctx context.Context, c *Client, method string, in, out any,
 	opts ...CallOption) error {
 	var cfg CallConfig

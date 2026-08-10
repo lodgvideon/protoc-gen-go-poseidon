@@ -91,7 +91,8 @@ options per call. Use it for anything that is not a hot loop.
 
 **`GreeterCaller`** reuses buffers. It owns the request scratch, the response
 scratch and the resolved call configuration, so a steady loop allocates nothing
-in this layer. One Caller serves one goroutine and one in-flight RPC; a
+in this layer — **0 B/op, 0 allocs/op**, measured, against the ergonomic face's
+112 B in 3. See [docs/ALLOCATIONS.md](docs/ALLOCATIONS.md). One Caller serves one goroutine and one in-flight RPC; a
 concurrent second call returns `pgrpc.ErrCallerInUse` rather than corrupting a
 request body.
 
@@ -189,12 +190,12 @@ buildable at all.
 ## What is not done
 
 - **No release tag.** The generated API may still change.
-- **No measured allocation numbers.** The buffer-reusing path exists and is
-  exercised; the figures are not published yet.
+- **No streaming allocation figures.** The unary path is measured (see below);
+  per-message send and receive costs are not.
 - **No BSR remote plugin.** Local binary only.
 - **Flat mode** (`separate_package=false`) is deferred; it needs a mechanical
   gate over everything the two upstream generators can emit.
-- **No `docs/`.** The doc comments carry the reasoning for now.
+- **`docs/` is one file.** Only the allocation figures are written up; the rest of the reasoning lives in doc comments.
 
 ## Upstream
 

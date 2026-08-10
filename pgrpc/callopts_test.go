@@ -24,7 +24,7 @@ func sameArray(a, b []conn.HeaderField) bool {
 // an unguarded append to have somewhere to land in place — with a
 // tightly-sized slice every append reallocates and they would pass without
 // exercising anything.
-func mdOf(t *testing.T, pairs ...string) []conn.HeaderField {
+func mdOf(t testing.TB, pairs ...string) []conn.HeaderField {
 	t.Helper()
 	md := make([]conn.HeaderField, 0, len(pairs)/2+4)
 	for i := 0; i < len(pairs); i += 2 {
