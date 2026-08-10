@@ -101,6 +101,17 @@ var (
 	// receive state — header, trailer, status, done, err and the decoder — is
 	// entirely unguarded and must be driven by one goroutine.
 	ErrRecvInFlight = errors.New("pgrpc: another receive operation is in flight on this stream")
+
+	// ErrHeaderNotReady reports that response headers have not arrived yet.
+	//
+	// It can only be seen on a client-streaming or bidirectional stream, and
+	// only before the first successful receive. A server sends its response
+	// headers when it starts responding, which on those two shapes is after the
+	// client has sent something — so there is nothing to read at construction
+	// time, and blocking for it there would deadlock the call against itself.
+	// Server-streaming never returns this: its request is complete before the
+	// constructor returns, so the headers are fetched eagerly.
+	ErrHeaderNotReady = errors.New("pgrpc: response headers have not arrived yet")
 )
 
 // Guard makes a second concurrent RPC on one Caller an attributable error

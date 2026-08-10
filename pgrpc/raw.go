@@ -48,3 +48,13 @@ func unaryRaw(ctx context.Context, cc UnaryInvoker, method string, req, dst []by
 	md []conn.HeaderField, pass []grpc.CallOption) ([]byte, error) {
 	return cc.InvokeInto(ctx, method, req, dst, md, pass...)
 }
+
+// recvRaw is the streaming counterpart of unaryRaw, on the same seam.
+//
+// RecvInto rather than Recv: Recv is documented to return "a fresh copy owned
+// by the caller", which is one allocation and one copy per message that no
+// caller above it can decline. RecvInto appends into memory the stream already
+// owns, so a server-streaming loop reads a million messages through one buffer.
+func recvRaw(ctx context.Context, s *grpc.Stream, dst []byte) ([]byte, error) {
+	return s.RecvInto(ctx, dst)
+}
