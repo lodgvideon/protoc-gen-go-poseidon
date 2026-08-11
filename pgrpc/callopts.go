@@ -40,9 +40,14 @@ type CallOption interface{ Apply(*CallConfig) }
 // exported field lets a caller defeat that rule by assignment, silently. The
 // methods are the rule.
 //
-// The zero value is ready to use. It is safe to copy BY VALUE — a copy adopts
-// its own metadata on first modification, so two copies never write into one
-// array.
+// The zero value is ready to use.
+//
+// It is safe to copy BY VALUE: a copy adopts its own metadata on first
+// modification, so two copies never write into one array. ONE EXCEPTION, and it
+// is inherent to copying a struct that holds a slice — Reset on the ORIGINAL
+// clears the array a copy is still reading, if that copy has not modified
+// anything yet and so still shares it. Build the copies, then leave the
+// original alone; or call Reset before copying rather than after.
 type CallConfig struct {
 	// md is handed to poseidon POSITIONALLY. Never through grpc.WithMetadata,
 	// which would duplicate every header.
@@ -133,6 +138,29 @@ func (c *CallConfig) adopt() {
 	}
 	c.md = append(c.md[:0:0], c.md...)
 	c.owner = c
+}
+
+// AppendHeader appends one entry through grpc.AppendMetadata, so the key is
+// lowercased, a "-bin" key is base64-encoded, and poseidon's reserved-key and
+// field-syntax checks run. A failure is latched rather than returned, because
+// an option cannot return one.
+//
+// It exists because AppendField alone left an option written OUTSIDE this
+// package unable to do what the built-in ones do: AppendField takes an
+// already-built field and therefore skips every check. Without this, "the
+// interface is genuinely open" was true only for options that did not care
+// about validation.
+func (c *CallConfig) AppendHeader(key string, value []byte) {
+	c.adopt()
+	// Assign only on success. grpc.AppendMetadata returns (nil, err), so the
+	// idiomatic single-assignment form discards every header accumulated
+	// before the bad one.
+	next, err := grpc.AppendMetadata(c.md, key, value)
+	if err != nil {
+		c.Fail(err)
+		return
+	}
+	c.md = next
 }
 
 // PoseidonOptions returns the poseidon options this call forwards. Read-only,
@@ -251,20 +279,7 @@ type headerOption struct {
 	value []byte
 }
 
-func (o headerOption) Apply(c *CallConfig) {
-	c.adopt()
-	// The two-step append is not cosmetic. grpc.AppendMetadata returns
-	// (nil, err) on failure, so the idiomatic `md, err = AppendMetadata(md, …)`
-	// DESTROYS everything accumulated so far when one entry is bad. Assigning
-	// only on success keeps the earlier entries and reports the failure through
-	// Err.
-	next, err := grpc.AppendMetadata(c.md, o.key, o.value)
-	if err != nil {
-		c.Fail(err)
-		return
-	}
-	c.md = next
-}
+func (o headerOption) Apply(c *CallConfig) { c.AppendHeader(o.key, o.value) }
 
 // WithHeader appends one entry through grpc.AppendMetadata, so the key is
 // lowercased, a "-bin" key is base64-encoded, and the reserved-key and

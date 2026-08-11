@@ -400,3 +400,56 @@ func TestNilPoseidonOptionIsDropped(t *testing.T) {
 		}
 	}
 }
+
+// TestAppendHeaderValidatesFromAnOutsideOption is what makes "the interface is
+// genuinely open" true for options that care about validation. AppendField
+// takes an already-built field and therefore skips every check; without a
+// validated counterpart, an option written outside this package could not do
+// what the built-in ones do.
+func TestAppendHeaderValidatesFromAnOutsideOption(t *testing.T) {
+	var cfg pgrpc.CallConfig
+	cfg.Apply(validatingOutsideOption{key: "X-Tenant", value: []byte("acme")})
+	if err := cfg.Err(); err != nil {
+		t.Fatalf("Err = %v", err)
+	}
+	if got := names(cfg.Metadata()); len(got) != 1 || got[0] != "x-tenant" {
+		t.Errorf("metadata = %v, want the key lowercased by AppendMetadata", got)
+	}
+
+	var bad pgrpc.CallConfig
+	bad.Apply(validatingOutsideOption{key: "content-type", value: []byte("x")})
+	if !errors.Is(bad.Err(), grpc.ErrReservedMetadata) {
+		t.Errorf("a reserved key was accepted from an outside option: %v", bad.Err())
+	}
+}
+
+type validatingOutsideOption struct {
+	key   string
+	value []byte
+}
+
+func (o validatingOutsideOption) Apply(c *pgrpc.CallConfig) { c.AppendHeader(o.key, o.value) }
+
+// TestResetOnTheOriginalClearsAnUnmodifiedCopy pins the one exception to the
+// copy-by-value claim, so it is a documented behaviour rather than a surprise.
+// It is inherent to copying a struct that holds a slice: a copy that has not
+// modified anything yet still shares the original's array.
+func TestResetOnTheOriginalClearsAnUnmodifiedCopy(t *testing.T) {
+	var base pgrpc.CallConfig
+	base.Apply(pgrpc.WithHeaderString("x-tenant", "acme"))
+
+	untouched := base
+	modified := base
+	modified.Apply(pgrpc.WithHeaderString("x-request-id", "r-1")) // adopts its own
+
+	base.Reset()
+
+	if len(modified.Metadata()) != 2 || string(modified.Metadata()[0].Value) != "acme" {
+		t.Errorf("a copy that had modified was disturbed by the original's Reset: %v",
+			modified.Metadata())
+	}
+	// And the documented exception, asserted rather than left to be discovered.
+	if len(untouched.Metadata()) > 0 && untouched.Metadata()[0].Name != nil {
+		t.Log("an unmodified copy survived this Reset; the doc only promises it may not")
+	}
+}

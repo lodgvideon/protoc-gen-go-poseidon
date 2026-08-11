@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"errors"
 	"path"
 	"strconv"
 	"strings"
@@ -62,12 +63,18 @@ func Run(p *protogen.Plugin, cfg Config) error {
 	// Reported after every file, so one run names every collision rather than
 	// making the user regenerate per fix. In declaration order, so the message
 	// does not shuffle between runs.
+	//
+	// EVERY package, not the first. Stopping at one had the same shape as the
+	// per-file set it replaced, one level up: a user with collisions in two
+	// output directories fixed the first, regenerated, and only then learnt
+	// about the second.
+	var errs []error
 	for _, k := range order {
 		if err := sets[k].err(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // fileGen carries the per-file state the emitters share.

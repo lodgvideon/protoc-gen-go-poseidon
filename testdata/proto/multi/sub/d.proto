@@ -1,0 +1,18 @@
+// The sibling that gives multi/sub its OWN collision.
+//
+// With this file there are two colliding output directories under
+// paths=source_relative — multi/ from a.proto and b.proto, multi/sub/ from
+// c.proto and this one — which is what makes "every colliding package is
+// reported" a testable claim rather than a skipped one.
+syntax = "proto3";
+
+package multi.sub;
+
+import "multi/a.proto";
+
+option go_package = "github.com/lodgvideon/protoc-gen-go-poseidon/testdata/multi;multi";
+
+// Foo generates the same full-method constant as c.proto's Foo_Bar.
+service Foo {
+  rpc Bar_Baz(multi.P) returns (multi.P) {}
+}

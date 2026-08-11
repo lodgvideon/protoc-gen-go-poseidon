@@ -521,3 +521,29 @@ func TestCollisionKeyIsTheOutputDirectory(t *testing.T) {
 		}
 	})
 }
+
+// TestEveryCollidingPackageIsReported keeps the run from surfacing one
+// collision at a time. Stopping at the first had the same shape as the
+// per-file set it replaced, one level up: fix, regenerate, learn about the
+// next one.
+func TestEveryCollidingPackageIsReported(t *testing.T) {
+	// Under paths=source_relative these are TWO output directories, each with
+	// its own collision: multi/ from a.proto and b.proto, multi/sub/ from
+	// c.proto and d.proto.
+	p, cfg := newPlugin(t,
+		[]string{"multi/a.proto", "multi/b.proto", "multi/sub/c.proto", "multi/sub/d.proto"},
+		"paths=source_relative")
+	err := Run(p, cfg)
+	if err == nil {
+		t.Fatal("two colliding output directories were accepted")
+	}
+
+	if n := strings.Count(err.Error(), "identifier collision"); n != 2 {
+		t.Errorf("the report names %d colliding directories, want 2: %v", n, err)
+	}
+	for _, want := range []string{"multi/poseidon", "multi/sub/poseidon"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the report does not name %q: %v", want, err)
+		}
+	}
+}
