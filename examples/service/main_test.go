@@ -147,3 +147,24 @@ func TestTheBackendMessageDoesNotReachTheCaller(t *testing.T) {
 		t.Errorf("the backend's message reached the caller: %q", w.Body.String())
 	}
 }
+
+// TestGreetManyMapsAFailedOpen covers what the fake CAN reach on the
+// client-streaming handler: the backend refusing the call at all.
+//
+// The send loop and CloseAndRecv are deliberately not covered here. A
+// *pgrpc.ClientStream only comes from a real connection, so faking one would
+// mean a fake that lies about the very thing under test; test/e2e drives that
+// shape against a real grpc-go server instead.
+func TestGreetManyMapsAFailedOpen(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/greet-many", strings.NewReader("ann\nbob\n"))
+
+	(&server{greeter: &fakeGreeter{}}).greetMany(w, r)
+
+	if w.Code == http.StatusOK {
+		t.Error("a refused call was reported as a success")
+	}
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("status = %d, want 502 for an error carrying no gRPC status", w.Code)
+	}
+}

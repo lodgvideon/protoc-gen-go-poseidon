@@ -26,14 +26,17 @@
 //	service -backend localhost:50051 -plaintext -addr :8080
 //	curl 'localhost:8080/greet?name=world'
 //	curl 'localhost:8080/greetings?name=world'
+//	curl --data-binary 'ann\nbob' localhost:8080/greet-many
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -56,6 +59,10 @@ import (
 // work when this expires rather than finishing a response nobody is waiting
 // for.
 const callTimeout = 3 * time.Second
+
+// maxUploadBytes bounds a client-streaming request body. Without it an
+// anonymous caller decides how much this service forwards to its backend.
+const maxUploadBytes = 1 << 20
 
 func main() {
 	var (
@@ -92,6 +99,7 @@ func run(addr, backend string, plaintext, insecure bool) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /greet", svc.greet)
 	mux.HandleFunc("GET /greetings", svc.greetings)
+	mux.HandleFunc("POST /greet-many", svc.greetMany)
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -198,6 +206,66 @@ func (s *server) greetings(w http.ResponseWriter, r *http.Request) {
 	if st := stream.Status(); st.Code != pgrpc.OK {
 		slog.Warn("stream ended non-OK", "code", st.Code, "message", st.Message)
 	}
+}
+
+// greetMany is the client-streaming shape: many requests, one reply.
+//
+// It is the natural fit for an upload — a request body streamed straight into
+// the backend without being buffered first — which is the case a service
+// actually has for this shape.
+//
+// Note what is NOT here: a Recv loop. ClientStream has no Recv method at all,
+// because the natural mistake on this shape is to read in one goroutine while
+// another sends, which puts two goroutines inside poseidon's unguarded receive
+// state. The reply comes back from the call that ends the sending side.
+func (s *server) greetMany(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), callTimeout)
+	defer cancel()
+
+	stream, err := s.greeter.LotsOfGreetings(ctx, forwardAuth(r)...)
+	if err != nil {
+		writeStatus(w, err)
+		return
+	}
+	// Unlike the server-streaming iterator, nothing closes this one for you:
+	// the send side is yours to end, so the stream is yours to close.
+	defer func() { _ = stream.Close() }()
+
+	// Bound what an unauthenticated caller can make you forward.
+	body := bufio.NewScanner(io.LimitReader(r.Body, maxUploadBytes))
+	for body.Scan() {
+		name := strings.TrimSpace(body.Text())
+		if name == "" {
+			continue
+		}
+		if err := stream.Send(ctx, &helloworld.HelloRequest{Name: name}); err != nil {
+			writeStatus(w, err)
+			return
+		}
+	}
+	if err := body.Err(); err != nil {
+		http.Error(w, "bad request body", http.StatusBadRequest)
+		return
+	}
+
+	// CloseAndRecv half-closes and reads the single reply. An empty body is
+	// not a special case: the call still has to be ended properly, or the
+	// backend waits out its deadline for a request that is never coming.
+	//
+	// SendLastAndRecv is the faster form — it folds the half-close into the
+	// last message's own DATA frame, saving a flush, a TLS record and usually
+	// a segment. It is not used here because using it means holding the final
+	// message back through the loop, and that off-by-one is logic this
+	// example's own tests cannot reach: a *pgrpc.ClientStream only comes from
+	// a real connection. An example should not carry logic it cannot prove.
+	reply := &helloworld.HelloReply{}
+	if err := stream.CloseAndRecv(ctx, reply); err != nil {
+		writeStatus(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = fmt.Fprintln(w, reply.GetMessage())
 }
 
 // forwardAuth passes the caller's credential through to the backend.
