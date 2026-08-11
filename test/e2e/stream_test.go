@@ -187,7 +187,7 @@ func TestBidiAllYieldsEveryMessage(t *testing.T) {
 		t.Fatalf("CloseSend: %v", err)
 	}
 
-	var got []string
+	got := make([]string, 0, n)
 	for reply, err := range s.All(ctx) {
 		if err != nil {
 			t.Fatalf("iterate: %v", err)
