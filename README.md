@@ -178,6 +178,17 @@ Five modules, because each proves something the others cannot:
 directory named `testdata` — a module rooted there is what makes those files
 buildable at all.
 
+Run all five through the same gate CI uses:
+
+```bash
+scripts/check.sh          # fmt, vet, test, lint, deps
+scripts/check.sh race     # what CI actually gates on
+```
+
+It stops on the first failure, which the shell loop it replaced did not — that
+loop printed each module's result and exited 0 regardless, and a commit went in
+with an outstanding lint finding because of it.
+
 ## What is tested
 
 - Golden files over seven option combinations, including a bare boolean key.

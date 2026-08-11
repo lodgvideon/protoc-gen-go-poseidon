@@ -381,3 +381,22 @@ func (c stubCodec) Name() string {
 	}
 	return c.name
 }
+
+// TestNilPoseidonOptionIsDropped keeps a caller mistake out of poseidon's
+// stack. poseidon calls apply on every option it is given, so a nil one panics
+// inside NewStream — on a value this package handed it, which is the worst
+// place for anyone to have to work out what happened.
+func TestNilPoseidonOptionIsDropped(t *testing.T) {
+	var cfg pgrpc.CallConfig
+	cfg.Apply(pgrpc.WithPoseidonCallOptions(nil, grpc.MaxRecvMessageSize(1<<20), nil))
+
+	got := cfg.PoseidonOptions()
+	if len(got) != 1 {
+		t.Fatalf("forwarded %d options, want 1 — the nils should not survive", len(got))
+	}
+	for i, o := range got {
+		if o == nil {
+			t.Errorf("option %d is nil; poseidon will panic on it", i)
+		}
+	}
+}

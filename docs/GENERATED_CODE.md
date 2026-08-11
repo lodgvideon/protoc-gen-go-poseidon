@@ -107,10 +107,10 @@ for anything that is not a hot loop.
 ```go
 func (x *GreeterCaller) SayHello(ctx context.Context, in *helloworld.HelloRequest,
 	out *helloworld.HelloReply) error {
-	if err := x.Enter(); err != nil {
+	if err := x.guard.Enter(); err != nil {
 		return err
 	}
-	defer x.Leave()
+	defer x.guard.Leave()
 	return pgrpc.Unary(ctx, x.c, &x.cfg, Greeter_SayHello_FullMethodName, in, out, &x.buf, &x.respBuf)
 }
 ```

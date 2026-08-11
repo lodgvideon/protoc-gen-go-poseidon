@@ -140,12 +140,22 @@ func (c *CallConfig) adopt() {
 func (c *CallConfig) PoseidonOptions() []grpc.CallOption { return c.pass }
 
 // AppendPoseidonOptions forwards poseidon's own call options verbatim.
+//
+// A nil entry is dropped rather than forwarded. poseidon calls apply on every
+// option in the list, so a nil one panics inside NewStream — in poseidon's
+// stack, on a value this package handed it, which is the worst place for a
+// caller to have to diagnose it. Apply already ignores a nil pgrpc.CallOption;
+// this is the same courtesy one layer down.
 func (c *CallConfig) AppendPoseidonOptions(opts ...grpc.CallOption) {
 	if c.passOwner != c {
 		c.pass = append(c.pass[:0:0], c.pass...)
 		c.passOwner = c
 	}
-	c.pass = append(c.pass, opts...)
+	for _, o := range opts {
+		if o != nil {
+			c.pass = append(c.pass, o)
+		}
+	}
 }
 
 // Codec returns the per-call codec override, or nil to inherit the Client's.
