@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: ['.', 'pgrpc', 'testdata', 'test/e2e', 'examples/loadgen']
+        module: ['.', 'pgrpc', 'testdata', 'test/e2e', 'examples/loadgen', 'examples/service']
     defaults:
       run:
         working-directory: ${{ matrix.module }}
@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: ['.', 'pgrpc', 'testdata', 'test/e2e', 'examples/loadgen']
+        module: ['.', 'pgrpc', 'testdata', 'test/e2e', 'examples/loadgen', 'examples/service']
     defaults:
       run:
         working-directory: ${{ matrix.module }}

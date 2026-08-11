@@ -11,18 +11,19 @@
 # maintainer's machine, and a gate nobody can run locally is the same mistake
 # in a nicer hat.
 #
-# Five modules, because each proves something the others cannot:
+# Six modules, because each proves something the others cannot:
 #   .                 the plugin binary; requires only google.golang.org/protobuf
 #   pgrpc             the runtime that generated code calls into
 #   testdata          compiles the generated output against pgrpc and NOTHING else
 #   test/e2e          drives that output against a real grpc-go server
-#   examples/loadgen  the only consumer-shaped module; its dependency graph is a gate
+#   examples/loadgen  a consumer-shaped module; its dependency graph is a gate
+#   examples/service  the ordinary case: one RPC per request, faked in tests
 #
 # Usage: scripts/check.sh [fmt|vet|test|race|lint|deps]...   (default: all but race)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-MODULES=(. pgrpc testdata test/e2e examples/loadgen)
+MODULES=(. pgrpc testdata test/e2e examples/loadgen examples/service)
 
 step_fmt() {
   local bad=0

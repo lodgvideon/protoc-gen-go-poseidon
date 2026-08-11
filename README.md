@@ -6,7 +6,7 @@ from-scratch HTTP/2 stack — what `protoc-gen-go-grpc` does for grpc-go, withou
 linking grpc-go at all.
 
 > **Status: ready to tag as v0.1.0.** Every call shape round-trips against a
-> real grpc-go server under `-race`, and CI builds five modules on every push.
+> real grpc-go server under `-race`, and CI builds six modules on every push.
 > An adversarial pre-tag review found five things that would have frozen wrong;
 > all five are fixed. See [What is not done](#what-is-not-done).
 
@@ -164,7 +164,7 @@ they do for every other Go plugin.
 
 ## Layout
 
-Five modules, because each proves something the others cannot:
+Six modules, because each proves something the others cannot:
 
 | Module | Purpose |
 |---|---|
@@ -172,7 +172,8 @@ Five modules, because each proves something the others cannot:
 | `pgrpc/` | the runtime generated code calls into. Requires poseidon and protobuf |
 | `testdata/` | compiles the checked-in generated output against `pgrpc` and **nothing else** |
 | `test/e2e/` | drives that output against a real grpc-go server |
-| `examples/loadgen/` | the only module shaped like a **consumer**; its dependency graph is CI's proof that a user links the runtime, not the plugin, and never grpc-go |
+| `examples/loadgen/` | a module shaped like a **consumer**; its dependency graph is CI's proof that a user links the runtime, not the plugin, and never grpc-go |
+| `examples/service/` | the **ordinary** case: an HTTP handler calling a gRPC backend, one RPC per request, with its handlers unit-tested against a faked client |
 
 `testdata` is a module rather than a directory because Go's toolchain skips any
 directory named `testdata` — a module rooted there is what makes those files
