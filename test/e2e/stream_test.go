@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -154,5 +155,117 @@ func TestRecvAfterCloseFromTheBody(t *testing.T) {
 		t.Error("a receive after Close succeeded")
 	} else if !errors.Is(err, pgrpc.StatusOf(err).Err()) && pgrpc.StatusOf(err).Code == pgrpc.OK {
 		t.Errorf("a receive after Close classified as OK: %v", err)
+	}
+}
+
+// BidiStream.All had NO coverage at all until these. Round two proved it by
+// mutation: making the iterator yield nothing, and re-holding the Close gate
+// across the loop body — the literal revert of the bidi half of the deadlock
+// fix — both survived the whole suite.
+//
+// An iterator with no test is not "probably fine because its sibling is
+// tested"; ServerStream.All and BidiStream.All differ in the one thing that
+// matters, which is who owns the stream afterwards.
+
+func TestBidiAllYieldsEveryMessage(t *testing.T) {
+	c := streamingClient(t, &greeter{})
+	ctx := testCtx(t)
+
+	s, err := c.BidiHello(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	const n = 5
+	for i := range n {
+		if err := s.Send(ctx, &helloworld.HelloRequest{Name: fmt.Sprintf("n%d", i)}); err != nil {
+			t.Fatalf("send %d: %v", i, err)
+		}
+	}
+	if err := s.CloseSend(ctx); err != nil {
+		t.Fatalf("CloseSend: %v", err)
+	}
+
+	var got []string
+	for reply, err := range s.All(ctx) {
+		if err != nil {
+			t.Fatalf("iterate: %v", err)
+		}
+		got = append(got, reply.GetMessage())
+	}
+
+	if len(got) != n {
+		t.Fatalf("received %d messages, want %d: %v", len(got), n, got)
+	}
+	for i, m := range got {
+		if want := fmt.Sprintf("re: n%d", i); m != want {
+			t.Errorf("message %d = %q, want %q", i, m, want)
+		}
+	}
+}
+
+// TestBidiAllDoesNotCloseTheStream is the documented difference from the
+// server-streaming iterator, and the reason it cannot simply be shared: the
+// sending goroutine's lifetime is not the iterator's, so a break here must not
+// cancel a Send that another goroutine is still making.
+func TestBidiAllDoesNotCloseTheStream(t *testing.T) {
+	c := streamingClient(t, &greeter{})
+	ctx := testCtx(t)
+
+	s, err := c.BidiHello(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if err := s.Send(ctx, &helloworld.HelloRequest{Name: "first"}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	for range s.All(ctx) {
+		break // the server-streaming iterator would close here
+	}
+
+	// The stream must still be usable, in both directions.
+	if err := s.Send(ctx, &helloworld.HelloRequest{Name: "second"}); err != nil {
+		t.Fatalf("the stream was closed by All: %v", err)
+	}
+	out := &helloworld.HelloReply{}
+	if err := s.Recv(ctx, out); err != nil {
+		t.Fatalf("recv after All: %v", err)
+	}
+	if out.GetMessage() != "re: second" {
+		t.Errorf("reply = %q, want %q", out.GetMessage(), "re: second")
+	}
+}
+
+// TestBidiCloseFromInsideAllDoesNotDeadlock is the bidi twin of the
+// server-streaming case. Round two mutated the gate back to whole-iteration
+// scope here specifically and nothing failed.
+func TestBidiCloseFromInsideAllDoesNotDeadlock(t *testing.T) {
+	c := streamingClient(t, &greeter{})
+	ctx := testCtx(t)
+
+	s, err := c.BidiHello(ctx)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := s.Send(ctx, &helloworld.HelloRequest{Name: "n"}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range s.All(ctx) {
+			_ = s.Close()
+			break
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("Close() from inside a bidi loop body deadlocked")
 	}
 }
